@@ -13,10 +13,16 @@ return new class extends Migration
     {
         Schema::create('users', function (Blueprint $table) {
             $table->id();
+            $table->string('consumer_id')->unique(); // Unique ID for every consumer
             $table->string('name');
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+
+            // Seller-related fields
+            $table->boolean('is_seller')->default(false); // false = consumer only
+            $table->string('seller_id')->nullable()->unique(); // Only filled if user becomes a seller
+
             $table->rememberToken();
             $table->timestamps();
         });
