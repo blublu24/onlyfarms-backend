@@ -3,54 +3,69 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
-use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 
 class ProductController extends Controller
 {
-    // GET /api/products  → list all products
+    // Get all products
     public function index()
     {
-        // include seller name
-        $products = Product::with(['user:id,name'])->latest()->get();
-
-        return response()->json($products, 200);
+        return response()->json(Product::all(), 200);
     }
 
-    // POST /api/products → create product (seller only)
+    // Get one product
+    public function show($id)
+    {
+        $product = Product::find($id);
+
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        return response()->json($product, 200);
+    }
+
+    // Create a new product
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
+        $validated = $request->validate([
+            'product_name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'required|numeric|min:0',
-            'image_url' => 'nullable|url',
-            'user_id' => 'required|exists:users,id', // who is creating
+            'price' => 'required|numeric',
+            'image_url' => 'nullable|string',
+            'seller_id' => 'required|string',
         ]);
 
-        if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
+        $product = Product::create($validated);
+
+        return response()->json($product, 201);
+    }
+
+    // Update a product
+    public function update(Request $request, $id)
+    {
+        $product = Product::find($id);
+
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
         }
 
-        $user = User::find($request->user_id);
+        $product->update($request->all());
 
-        // only sellers can post products (simple check for now)
-        if (!$user->is_seller) {
-            return response()->json(['message' => 'Only sellers can create products.'], 403);
+        return response()->json($product, 200);
+    }
+
+    // Delete a product
+    public function destroy($id)
+    {
+        $product = Product::find($id);
+
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
         }
 
-        $product = Product::create([
-            'name' => $request->name,
-            'description' => $request->description,
-            'price' => $request->price,
-            'image_url' => $request->image_url,
-            'user_id' => $user->id,
-        ]);
+        $product->delete();
 
-        return response()->json([
-            'message' => 'Product created!',
-            'product' => $product
-        ], 201);
+        return response()->json(['message' => 'Product deleted'], 200);
     }
 }

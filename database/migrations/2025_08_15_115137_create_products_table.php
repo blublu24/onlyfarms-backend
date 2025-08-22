@@ -8,12 +8,12 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::create('products', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
+            $table->id('product_id'); // Primary key
+            $table->string('product_name');
             $table->text('description')->nullable();
-            $table->decimal('price', 10, 2); // e.g. 1999.99
+            $table->decimal('price', 10, 2);
             $table->string('image_url')->nullable();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade'); // seller
+            $table->string('seller_id'); // Match seller_id in users table
             $table->timestamps();
         });
     }
@@ -23,4 +23,3 @@ return new class extends Migration {
         Schema::dropIfExists('products');
     }
 };
-

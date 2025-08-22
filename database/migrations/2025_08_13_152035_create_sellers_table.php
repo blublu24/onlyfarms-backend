@@ -10,11 +10,13 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::create('consumers', function (Blueprint $table) {
-            $table->id(); // consumer_id
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+        Schema::create('sellers', function (Blueprint $table) {
+            $table->id(); // seller_id
+            $table->foreignId('user_id')->constrained()->onDelete('cascade'); // link to users table
+            $table->string('shop_name'); // seller's shop or farm name
             $table->string('address')->nullable();
             $table->string('phone_number')->nullable();
+            $table->string('business_permit')->nullable(); // maybe for verification
             $table->timestamps();
         });
     }
@@ -24,6 +26,6 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::dropIfExists('consumers');
+        Schema::dropIfExists('sellers');
     }
 };
