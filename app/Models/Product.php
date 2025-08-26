@@ -20,8 +20,9 @@ class Product extends Model
     ];
 
     // Relationship: Product belongs to a seller (User)
-    public function seller()
+    public function user()
     {
-        return $this->belongsTo(User::class, 'seller_id', 'seller_id');
+        return $this->belongsTo(User::class, 'seller_id', 'id');
+        // seller_id in products → id in users
     }
 }

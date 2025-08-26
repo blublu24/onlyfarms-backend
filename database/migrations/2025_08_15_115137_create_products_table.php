@@ -5,6 +5,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
+
     public function up(): void
     {
         Schema::create('products', function (Blueprint $table) {
@@ -13,7 +14,10 @@ return new class extends Migration {
             $table->text('description')->nullable();
             $table->decimal('price', 10, 2);
             $table->string('image_url')->nullable();
-            $table->string('seller_id'); // Match seller_id in users table
+
+            // Use foreignId instead of string for seller reference
+            $table->foreignId('seller_id')->constrained('users')->onDelete('cascade');
+
             $table->timestamps();
         });
     }

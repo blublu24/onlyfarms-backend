@@ -28,7 +28,6 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
             'consumer_id' => uniqid('cons_'),
             'is_seller' => false,
-            'seller_id' => null,
         ]);
 
         // 👇 Generate Sanctum token

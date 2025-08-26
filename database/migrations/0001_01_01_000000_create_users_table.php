@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -21,7 +20,6 @@ return new class extends Migration
 
             // Seller-related fields
             $table->boolean('is_seller')->default(false); // false = consumer only
-            $table->string('seller_id')->nullable()->unique(); // Only filled if user becomes a seller
 
             $table->rememberToken();
             $table->timestamps();

@@ -2,84 +2,40 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Seller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class SellerController extends Controller
 {
-    // List all sellers
-    public function index()
+    // Authenticated user becomes seller
+    public function becomeSeller()
     {
-        $sellers = Seller::with('user')->get();
-        return response()->json($sellers);
-    }
+        $user = Auth::user();
 
-    // Create new seller profile
-    public function store(Request $request)
-    {
-        $request->validate([
-            'shop_name' => 'required|string|max:255',
-            'address' => 'nullable|string|max:255',
-            'phone_number' => 'nullable|string|max:20',
-            'business_permit' => 'nullable|string|max:255',
-        ]);
-
-        $seller = Seller::create([
-            'user_id' => Auth::id(), // current logged in user
-            'shop_name' => $request->shop_name,
-            'address' => $request->address,
-            'phone_number' => $request->phone_number,
-            'business_permit' => $request->business_permit,
-        ]);
-
-        return response()->json([
-            'message' => 'Seller profile created successfully',
-            'seller' => $seller
-        ], 201);
-    }
-
-    // View single seller
-    public function show($id)
-    {
-        $seller = Seller::with('user')->findOrFail($id);
-        return response()->json($seller);
-    }
-
-    // Update seller profile
-    public function update(Request $request, $id)
-    {
-        $seller = Seller::findOrFail($id);
-
-        // Optional: check if current user owns this seller profile
-        if ($seller->user_id !== Auth::id()) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+        if ($user->is_seller) {
+            return response()->json(['message' => 'Already a seller'], 400);
         }
 
-        $seller->update($request->only([
-            'shop_name',
-            'address',
-            'phone_number',
-            'business_permit'
-        ]));
+        $user->is_seller = 1;
+        $user->save();
 
-        return response()->json([
-            'message' => 'Seller profile updated',
-            'seller' => $seller
-        ]);
+        return response()->json(['message' => 'You are now a seller!']);
     }
 
-    // Delete seller profile
-    public function destroy($id)
+    // Get seller's own profile
+    public function profile()
     {
-        $seller = Seller::findOrFail($id);
+        $user = Auth::user();
 
-        if ($seller->user_id !== Auth::id()) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+        if (!$user->is_seller) {
+            return response()->json(['message' => 'You are not a seller'], 403);
         }
 
-        $seller->delete();
-
-        return response()->json(['message' => 'Seller profile deleted']);
+        return response()->json([
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'is_seller' => $user->is_seller,
+        ]);
     }
 }

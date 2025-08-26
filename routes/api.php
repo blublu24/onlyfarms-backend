@@ -10,28 +10,23 @@ use App\Http\Controllers\SellerController;
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 
-Route::get('/products', [ProductController::class, 'index']);    // anyone can browse products
-Route::get('/products/{id}', [ProductController::class, 'show']); // anyone can see details
-Route::get('/sellers', [SellerController::class, 'index']);      // anyone can browse sellers
-Route::get('/sellers/{id}', [SellerController::class, 'show']);  // anyone can view a seller
+Route::get('/products', [ProductController::class, 'index']);      // anyone can browse products
+Route::get('/products/{id}', [ProductController::class, 'show']); // anyone can see product details
+Route::get('/sellers', [SellerController::class, 'index']);       // anyone can browse sellers
+Route::get('/sellers/{id}', [SellerController::class, 'show']);   // anyone can view a seller
 
 // 🔒 Protected routes (require Sanctum token)
 Route::middleware('auth:sanctum')->group(function () {
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    // Products (only logged-in users can manage)
-    Route::post('/products', [ProductController::class, 'store']);
-    Route::put('/products/{id}', [ProductController::class, 'update']);
-    Route::delete('/products/{id}', [ProductController::class, 'destroy']);
+    // Seller account management
+    Route::post('/seller/become', [SellerController::class, 'becomeSeller']); // become a seller
+    Route::get('/seller/profile', [SellerController::class, 'profile']);      // seller’s own profile
 
-    // Sellers (only logged-in users can manage)
-    Route::post('/sellers', [SellerController::class, 'store']);
-    Route::put('/sellers/{id}', [SellerController::class, 'update']);
-    Route::delete('/sellers/{id}', [SellerController::class, 'destroy']);
-
-    // Example: Profile route (get logged-in user)
-    Route::get('/profile', function (Request $request) {
-        return $request->user();
-    });
+    // Seller product management
+    Route::get('/seller/products', [ProductController::class, 'myProducts']); // seller’s own products
+    Route::post('/seller/products', [ProductController::class, 'store']);     // add product
+    Route::put('/seller/products/{id}', [ProductController::class, 'update']); // update product
+    Route::delete('/seller/products/{id}', [ProductController::class, 'destroy']); // delete product
 });
