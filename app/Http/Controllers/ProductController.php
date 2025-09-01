@@ -8,10 +8,19 @@ use Illuminate\Support\Facades\Auth;
 
 class ProductController extends Controller
 {
-    // Public: show all products
-    public function index()
+    // Public: show all products (with optional search)
+    public function index(Request $request)
     {
-        $products = Product::with('user')->get(); // load seller info
+        $query = Product::with('user'); // base query with seller info
+
+        if ($request->has('search')) {
+            $search = $request->input('search');
+            $query->where('product_name', 'like', "%{$search}%")
+                ->orWhere('description', 'like', "%{$search}%");
+        }
+
+        $products = $query->get();
+
         return response()->json($products);
     }
 
@@ -25,29 +34,36 @@ class ProductController extends Controller
     // Protected: store product (only for sellers)
     public function store(Request $request)
     {
-        $user = Auth::user();
-
-        if (!$user || !$user->is_seller) {
-            return response()->json(['error' => 'Only sellers can create products'], 403);
-        }
-
-        $validated = $request->validate([
+        $request->validate([
             'product_name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'required|numeric|min:0',
-            'image_url' => 'nullable|string',
+            'price' => 'required|numeric',
+            'seller_id' => 'required|exists:users,id',
+            'image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
+
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            // Store file in "storage/app/public/products"
+            $path = $request->file('image')->store('products', 'public');
+            // Generate public URL
+            $imageUrl = asset('storage/' . $path);
+        }
 
         $product = Product::create([
-            'product_name' => $validated['product_name'],
-            'description' => $validated['description'] ?? null,
-            'price' => $validated['price'],
-            'image_url' => $validated['image_url'] ?? null,
-            'seller_id' => $user->id,
+            'product_name' => $request->product_name,
+            'description' => $request->description,
+            'price' => $request->price,
+            'seller_id' => $request->seller_id,
+            'image_url' => $imageUrl, // store URL not path
         ]);
 
-        return response()->json(['message' => 'Product added successfully', 'product' => $product], 201);
+        return response()->json([
+            'message' => 'Product created successfully',
+            'product' => $product
+        ], 201);
     }
+
 
     // Protected: update product (seller can only update own)
     public function update(Request $request, $id)
@@ -63,12 +79,15 @@ class ProductController extends Controller
             'product_name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'price' => 'sometimes|numeric|min:0',
-            'image_url' => 'nullable|string',
+            'image_url' => 'nullable|string', // ✅ updated with only image_url
         ]);
 
         $product->update($validated);
 
-        return response()->json(['message' => 'Product updated', 'product' => $product]);
+        return response()->json([
+            'message' => 'Product updated',
+            'product' => $product
+        ]);
     }
 
     // Protected: delete product (seller can only delete own)
