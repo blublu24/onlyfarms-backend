@@ -9,7 +9,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;   // 👈 Added HasApiTokens here
+    use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
         'name',
@@ -17,7 +17,6 @@ class User extends Authenticatable
         'password',
         'consumer_id',
         'is_seller',
-        'seller_id',
     ];
 
     protected $hidden = [
@@ -33,13 +32,15 @@ class User extends Authenticatable
         ];
     }
 
+    // ✅ Relationship: A user can have many products if they are a seller
     public function products()
     {
-        return $this->hasMany(Product::class);
+        return $this->hasMany(Product::class, 'seller_id');
     }
 
+    // ✅ Relationship: A user may have one seller profile
     public function seller()
     {
-        return $this->hasOne(Seller::class);
+        return $this->hasOne(Seller::class, 'user_id');
     }
 }

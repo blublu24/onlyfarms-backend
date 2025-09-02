@@ -22,4 +22,10 @@ class Seller extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    // Each seller can have many products
+    public function products()
+    {
+        return $this->hasMany(Product::class, 'seller_id');
+    }
 }
