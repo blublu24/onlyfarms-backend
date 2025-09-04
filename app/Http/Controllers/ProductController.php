@@ -9,15 +9,41 @@ use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
-    // Public: show all products (with optional search)
+    // Public: show all products (with optional search, category, sorting)
     public function index(Request $request)
     {
         $query = Product::with('user'); // include seller info
 
+        // ✅ Search filter
         if ($request->has('search')) {
             $search = $request->input('search');
-            $query->where('product_name', 'like', "%{$search}%")
+            $query->where(function ($q) use ($search) {
+                $q->where('product_name', 'like', "%{$search}%")
                   ->orWhere('description', 'like', "%{$search}%");
+            });
+        }
+
+        // ✅ Category filter
+        if ($request->has('category') && $request->category) {
+            $query->where('category', $request->category);
+        }
+
+        // ✅ Sorting
+        if ($request->has('sort')) {
+            switch ($request->sort) {
+                case 'price_asc':
+                    $query->orderBy('price', 'asc');
+                    break;
+                case 'price_desc':
+                    $query->orderBy('price', 'desc');
+                    break;
+                case 'newest':
+                    $query->orderBy('created_at', 'desc');
+                    break;
+                default:
+                    // no sorting
+                    break;
+            }
         }
 
         $products = $query->get();
@@ -43,19 +69,21 @@ class ProductController extends Controller
         $request->validate([
             'product_name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'price' => 'required|numeric',
+            'category' => 'nullable|string|max:255',
+            'price' => 'required|numeric|min:0',
             'image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
         $imageUrl = null;
         if ($request->hasFile('image')) {
             $path = $request->file('image')->store('products', 'public');
-            $imageUrl = $path; // store path only, accessor returns full URL
+            $imageUrl = $path;
         }
 
         $product = Product::create([
             'product_name' => $request->product_name,
             'description' => $request->description,
+            'category' => $request->category,
             'price' => $request->price,
             'seller_id' => $user->id,
             'image_url' => $imageUrl,
@@ -80,6 +108,7 @@ class ProductController extends Controller
         $validated = $request->validate([
             'product_name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
+            'category' => 'nullable|string|max:255',
             'price' => 'sometimes|numeric|min:0',
             'image' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);

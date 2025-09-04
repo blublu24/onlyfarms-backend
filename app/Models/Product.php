@@ -16,20 +16,25 @@ class Product extends Model
         'description',
         'price',
         'image_url',
-        'seller_id'
+        'seller_id',
+        'category', // ✅ new field for filtering & categorization
     ];
 
-    // Relationship: Product belongs to a seller (User)
+    /**
+     * Relationship: Product belongs to a seller (User)
+     */
     public function user()
     {
         return $this->belongsTo(User::class, 'seller_id', 'id');
     }
 
-    // Accessor: Return full image URL
+    /**
+     * Accessor: Return full image URL (frontend friendly)
+     */
     public function getImageUrlAttribute($value)
     {
         if ($value) {
-            return url('storage/' . $value); // always return full URL
+            return url('storage/' . $value); // ✅ Always return full URL
         }
         return null;
     }
