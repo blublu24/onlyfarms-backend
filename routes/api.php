@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
+use App\Http\Controllers\OrderController;
 
 // 🔓 Public routes (no login needed)
 Route::post('/register', [AuthController::class, 'register']);
@@ -29,4 +30,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/seller/products', [ProductController::class, 'store']);     // add product
     Route::put('/seller/products/{id}', [ProductController::class, 'update']); // update product
     Route::delete('/seller/products/{id}', [ProductController::class, 'destroy']); // delete product
+
+    // Orders
+    Route::get('/orders', [OrderController::class, 'index']);          // current user’s orders
+    Route::get('/orders/{order}', [OrderController::class, 'show']);    // view specific order
+    Route::post('/orders', [OrderController::class, 'store']);         // place new order
 });

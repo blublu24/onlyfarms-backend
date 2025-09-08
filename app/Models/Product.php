@@ -16,8 +16,11 @@ class Product extends Model
         'description',
         'price',
         'image_url',
-        'seller_id',
-        'category', // ✅ new field for filtering & categorization
+        'seller_id', // ✅ new field for filtering & categorization
+    ];
+
+    protected $casts = [
+        'price' => 'decimal:2',
     ];
 
     /**
