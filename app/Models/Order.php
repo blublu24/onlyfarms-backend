@@ -13,7 +13,8 @@ class Order extends Model
         'total',             // Total cost of the whole order
         'status',            // pending / paid / shipped / completed
         'delivery_address',  // Where it’s going
-        'notes',             // Optional instructions
+        'note',             // Optional instructions
+        'payment_method',   // Payment method used
     ];
 
     protected $casts = [

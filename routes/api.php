@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
 use App\Http\Controllers\OrderController;
+use App\Http\Controllers\AddressController;
 
 // 🔓 Public routes (no login needed)
 Route::post('/register', [AuthController::class, 'register']);
@@ -35,4 +36,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);          // current user’s orders
     Route::get('/orders/{order}', [OrderController::class, 'show']);    // view specific order
     Route::post('/orders', [OrderController::class, 'store']);         // place new order
+
+    // Addresses
+    Route::get('/addresses', [AddressController::class, 'index']);
+    Route::post('/addresses', [AddressController::class, 'store']);
+    Route::put('/addresses/{id}', [AddressController::class, 'update']);
+    Route::delete('/addresses/{id}', [AddressController::class, 'destroy']);
 });

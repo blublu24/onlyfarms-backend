@@ -14,6 +14,7 @@ class OrderItem extends Model
         'product_name', // Snapshot of product name at the time of order
         'price',        // Snapshot of price at the time of order
         'quantity',     // How many of this product
+        'unit',         // Unit of measurement (e.g., kg, sacks)
         'image_url',    // Snapshot of product image (optional convenience)
     ];
 
