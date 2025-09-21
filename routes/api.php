@@ -42,4 +42,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/addresses', [AddressController::class, 'store']);
     Route::put('/addresses/{id}', [AddressController::class, 'update']);
     Route::delete('/addresses/{id}', [AddressController::class, 'destroy']);
+
+    //Order Payment
+    Route::post('/orders/{id}/pay', [OrderController::class, 'generatePaymentLink']);
+    Route::post('/orders/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
+
 });

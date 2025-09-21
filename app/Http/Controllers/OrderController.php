@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Address;
+use App\Models\Seller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -12,6 +13,9 @@ use Illuminate\Support\Str;
 
 class OrderController extends Controller
 {
+    /**
+     * Buyer: Get logged-in user's orders
+     */
     public function index(Request $request)
     {
         $orders = Order::with('items')
@@ -22,6 +26,9 @@ class OrderController extends Controller
         return response()->json($orders);
     }
 
+    /**
+     * Buyer: View a single order
+     */
     public function show(Order $order)
     {
         if ($order->user_id !== auth()->id()) {
@@ -31,6 +38,9 @@ class OrderController extends Controller
         return response()->json($order->load('items'));
     }
 
+    /**
+     * Buyer: Place a new order
+     */
     public function store(Request $request)
     {
         try {
@@ -40,7 +50,7 @@ class OrderController extends Controller
                 'items' => 'required|array|min:1',
                 'items.*.product_id' => 'required|integer|exists:products,product_id',
                 'items.*.quantity' => 'required|integer|min:1|max:999',
-                'items.*.unit' => 'required|string|in:kg,sack,piece', // ✅ Validate unit
+                'items.*.unit' => 'required|string|in:kg,sack,piece',
                 'address_id' => 'required|exists:addresses,address_id',
                 'notes' => 'nullable|string|max:500',
                 'payment_method' => 'nullable|string|in:cod,gcash,card',
@@ -49,18 +59,15 @@ class OrderController extends Controller
             $user = $request->user();
             Log::info('Validation passed', ['address_id' => $data['address_id']]);
 
-            // Ensure address belongs to this user
+            // ✅ Ensure address belongs to this user
             $address = Address::where('address_id', $data['address_id'])
                 ->where('user_id', $user->id)
                 ->firstOrFail();
 
             // ✅ Snapshot the address
             $deliveryAddress = $address->name . ', ' . $address->phone . ', ' . $address->address;
-            Log::info('Address found', ['delivery_address' => $deliveryAddress]);
 
             return DB::transaction(function () use ($data, $user, $deliveryAddress) {
-                Log::info('Transaction started');
-
                 $productIds = collect($data['items'])->pluck('product_id')->all();
                 $products = Product::whereIn('product_id', $productIds)->get()->keyBy('product_id');
 
@@ -70,12 +77,11 @@ class OrderController extends Controller
                 foreach ($data['items'] as $row) {
                     $product = $products[$row['product_id']] ?? null;
                     if (!$product) {
-                        Log::error('Product not found', ['product_id' => $row['product_id']]);
                         abort(422, "Product {$row['product_id']} not found");
                     }
 
                     $qty = (int) $row['quantity'];
-                    $unit = $row['unit']; // ✅ unit from request
+                    $unit = $row['unit'];
                     $unitPrice = (float) $product->price;
                     $lineTotal = round($unitPrice * $qty, 2);
                     $total = round($total + $lineTotal, 2);
@@ -91,12 +97,10 @@ class OrderController extends Controller
                         'product_name' => $product->product_name,
                         'price' => $unitPrice,
                         'quantity' => $qty,
-                        'unit' => $unit, // ✅ save unit
+                        'unit' => $unit,
                         'image_url' => $fullImage,
                     ];
                 }
-
-                Log::info('Line items calculated', ['total' => $total, 'items_count' => count($lineItems)]);
 
                 // ✅ Create order
                 $orderData = [
@@ -106,26 +110,58 @@ class OrderController extends Controller
                     'delivery_address' => $deliveryAddress,
                     'note' => $data['notes'] ?? null,
                     'payment_method' => $data['payment_method'] ?? 'cod',
+                    'payment_link' => null,           // Day 7 addition
+                    'payment_status' => 'pending',    // Day 7 addition
                 ];
 
                 $order = Order::create($orderData);
-                Log::info('Order created successfully', ['order_id' => $order->id]);
 
                 foreach ($lineItems as $li) {
                     $order->items()->create($li);
                 }
 
-                Log::info('Order items created', ['items_count' => count($lineItems)]);
+               // ✅ Real PayMongo Checkout integration
+if ($order->payment_method !== 'cod') {
+    $client = new \GuzzleHttp\Client();
+
+    $response = $client->post('https://api.paymongo.com/v1/checkout_sessions', [
+        'headers' => [
+            'Authorization' => 'Basic ' . base64_encode(env('PAYMONGO_SECRET_KEY') . ':'),
+            'Content-Type' => 'application/json',
+        ],
+        'json' => [
+            'data' => [
+                'attributes' => [
+                    'line_items' => [[
+                        'currency' => 'PHP',
+                        'amount' => (int) ($order->total * 100), // PayMongo expects cents
+                        'name' => 'Order #' . $order->id,
+                        'quantity' => 1,
+                    ]],
+                    'payment_method_types' => ['gcash', 'card'],
+                    'success_url' => url('/payments/success/' . $order->id),
+                    'cancel_url' => url('/payments/cancel/' . $order->id),
+                ],
+            ],
+        ],
+    ]);
+
+    $result = json_decode($response->getBody(), true);
+    $checkoutUrl = $result['data']['attributes']['checkout_url'] ?? null;
+
+    if ($checkoutUrl) {
+        $order->payment_link = $checkoutUrl;
+        $order->save();
+    }
+}
 
                 return response()->json([
                     'message' => 'Order created successfully',
                     'order' => $order->load('items')
                 ], 201);
-
             });
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Validation failed', ['errors' => $e->errors()]);
             return response()->json([
                 'message' => 'Validation failed',
                 'errors' => $e->errors()
@@ -141,5 +177,43 @@ class OrderController extends Controller
                 'message' => 'Order creation failed: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Seller: Get orders that contain their products
+     */
+    public function sellerOrders(Request $request)
+    {
+        $user = $request->user();
+        $seller = $user->seller;
+
+        if (!$seller) {
+            return response()->json(['message' => 'You are not a seller'], 403);
+        }
+
+        $orders = Order::with(['items.product','user'])
+            ->whereHas('items', function($q) use ($seller) {
+                $q->where('seller_id', $seller->id);
+            })
+            ->orderBy('created_at','desc')
+            ->get();
+
+        return response()->json($orders);
+    }
+
+    /**
+     * Seller: Update order status
+     */
+    public function updateStatus(Request $request, $id)
+    {
+        $request->validate([
+            'status' => 'required|in:pending,processing,completed,cancelled'
+        ]);
+
+        $order = Order::findOrFail($id);
+        $order->status = $request->status;
+        $order->save();
+
+        return response()->json($order);
     }
 }
