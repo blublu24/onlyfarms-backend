@@ -15,7 +15,6 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'consumer_id',
         'is_seller',
     ];
 
@@ -24,23 +23,22 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    protected function casts(): array
+    // ✅ Casts ensure `is_seller` returns boolean instead of 0/1
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+        'is_seller' => 'boolean',
+    ];
+
+    // Relationship: A user can have a seller profile
+    public function seller()
     {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
+        return $this->hasOne(Seller::class);
     }
 
-    // ✅ Relationship: A user can have many products if they are a seller
+    // Relationship: A user can have many products (if seller)
     public function products()
     {
         return $this->hasMany(Product::class, 'seller_id');
-    }
-
-    // ✅ Relationship: A user may have one seller profile
-    public function seller()
-    {
-        return $this->hasOne(Seller::class, 'user_id');
     }
 }

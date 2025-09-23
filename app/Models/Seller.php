@@ -13,17 +13,17 @@ class Seller extends Model
         'user_id',
         'shop_name',
         'address',
-        'phone_number',
-        'business_permit',
+        'phone_number',     // ✅ matches migration
+        'business_permit',  // ✅ matches migration
     ];
 
-    // Each seller belongs to a user
+    // A seller belongs to a user
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
-    // Each seller can have many products
+    // A seller has many products
     public function products()
     {
         return $this->hasMany(Product::class, 'seller_id');

@@ -7,6 +7,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\AddressController;
+use App\Http\Controllers\SellerOrderController;
 
 // 🔓 Public routes (no login needed)
 Route::post('/register', [AuthController::class, 'register']);
@@ -32,10 +33,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/seller/products/{id}', [ProductController::class, 'update']); // update product
     Route::delete('/seller/products/{id}', [ProductController::class, 'destroy']); // delete product
 
-    // Orders
+    // User orders
     Route::get('/orders', [OrderController::class, 'index']);          // current user’s orders
-    Route::get('/orders/{order}', [OrderController::class, 'show']);    // view specific order
+    Route::get('/orders/{order}', [OrderController::class, 'show']);   // view specific order
     Route::post('/orders', [OrderController::class, 'store']);         // place new order
+
+    // Seller orders
+    Route::get('/seller/orders', [SellerOrderController::class, 'index']);   // list all orders for seller
+    Route::get('/seller/orders/{order}', [SellerOrderController::class, 'show']); // ✅ view specific order for seller
+    Route::patch('/seller/orders/{order}/status', [SellerOrderController::class, 'updateStatus']); // update order status
 
     // Addresses
     Route::get('/addresses', [AddressController::class, 'index']);
