@@ -16,6 +16,7 @@ class User extends Authenticatable
         'email',
         'password',
         'is_seller',
+        'consumer_id', // ✅ auto-generated
     ];
 
     protected $hidden = [
@@ -23,20 +24,26 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    // ✅ Casts ensure `is_seller` returns boolean instead of 0/1
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
         'is_seller' => 'boolean',
     ];
 
-    // Relationship: A user can have a seller profile
+    // ✅ Automatically generate consumer_id on creating
+    protected static function booted()
+    {
+        static::creating(function ($user) {
+            $user->consumer_id = uniqid('cons_');
+        });
+    }
+
+    // Relationships
     public function seller()
     {
         return $this->hasOne(Seller::class);
     }
 
-    // Relationship: A user can have many products (if seller)
     public function products()
     {
         return $this->hasMany(Product::class, 'seller_id');
