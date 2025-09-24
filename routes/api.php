@@ -8,6 +8,8 @@ use App\Http\Controllers\SellerController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\AddressController;
 use App\Http\Controllers\SellerOrderController;
+use App\Http\Controllers\DashboardController;
+
 
 // 🔓 Public routes (no login needed)
 Route::post('/register', [AuthController::class, 'register']);
@@ -52,5 +54,8 @@ Route::middleware('auth:sanctum')->group(function () {
     //Order Payment
     Route::post('/orders/{id}/pay', [OrderController::class, 'generatePaymentLink']);
     Route::post('/orders/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
+
+    Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+    Route::get('/dashboard/top-purchased', [DashboardController::class, 'topPurchased']);
 
 });

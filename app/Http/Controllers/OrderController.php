@@ -120,40 +120,55 @@ class OrderController extends Controller
                     $order->items()->create($li);
                 }
 
-               // ✅ Real PayMongo Checkout integration
-if ($order->payment_method !== 'cod') {
-    $client = new \GuzzleHttp\Client();
+                // ✅ Real PayMongo Checkout integration
+                if ($order->payment_method !== 'cod') {
+                    $amount = (int) ($order->total * 100); // convert pesos to centavos
 
-    $response = $client->post('https://api.paymongo.com/v1/checkout_sessions', [
-        'headers' => [
-            'Authorization' => 'Basic ' . base64_encode(env('PAYMONGO_SECRET_KEY') . ':'),
-            'Content-Type' => 'application/json',
-        ],
-        'json' => [
-            'data' => [
-                'attributes' => [
-                    'line_items' => [[
-                        'currency' => 'PHP',
-                        'amount' => (int) ($order->total * 100), // PayMongo expects cents
-                        'name' => 'Order #' . $order->id,
-                        'quantity' => 1,
-                    ]],
-                    'payment_method_types' => ['gcash', 'card'],
-                    'success_url' => url('/payments/success/' . $order->id),
-                    'cancel_url' => url('/payments/cancel/' . $order->id),
-                ],
-            ],
-        ],
-    ]);
+                    // 🔒 Enforce minimum ₱50.00 for online payments
+                    if ($amount < 5000) {
+                        return response()->json([
+                            'message' => 'Minimum order amount for online payment is ₱50.00',
+                            'errors' => [
+                                'total' => ['The total must be at least ₱50.00 for online payment.']
+                            ]
+                        ], 422);
+                    }
 
-    $result = json_decode($response->getBody(), true);
-    $checkoutUrl = $result['data']['attributes']['checkout_url'] ?? null;
+                    $client = new \GuzzleHttp\Client();
 
-    if ($checkoutUrl) {
-        $order->payment_link = $checkoutUrl;
-        $order->save();
-    }
-}
+                    $response = $client->post('https://api.paymongo.com/v1/checkout_sessions', [
+                        'headers' => [
+                            'Authorization' => 'Basic ' . base64_encode(env('PAYMONGO_SECRET_KEY') . ':'),
+                            'Content-Type' => 'application/json',
+                        ],
+                        'json' => [
+                            'data' => [
+                                'attributes' => [
+                                    'line_items' => [
+                                        [
+                                            'currency' => 'PHP',
+                                            'amount' => $amount,
+                                            'name' => 'Order #' . $order->id,
+                                            'quantity' => 1,
+                                        ]
+                                    ],
+                                    'payment_method_types' => ['gcash', 'card'],
+                                    'success_url' => url('/payments/success/' . $order->id),
+                                    'cancel_url' => url('/payments/cancel/' . $order->id),
+                                ],
+                            ],
+                        ],
+                    ]);
+
+                    $result = json_decode($response->getBody(), true);
+                    $checkoutUrl = $result['data']['attributes']['checkout_url'] ?? null;
+
+                    if ($checkoutUrl) {
+                        $order->payment_link = $checkoutUrl;
+                        $order->save();
+                    }
+                }
+
 
                 return response()->json([
                     'message' => 'Order created successfully',
@@ -191,11 +206,11 @@ if ($order->payment_method !== 'cod') {
             return response()->json(['message' => 'You are not a seller'], 403);
         }
 
-        $orders = Order::with(['items.product','user'])
-            ->whereHas('items', function($q) use ($seller) {
+        $orders = Order::with(['items.product', 'user'])
+            ->whereHas('items', function ($q) use ($seller) {
                 $q->where('seller_id', $seller->id);
             })
-            ->orderBy('created_at','desc')
+            ->orderBy('created_at', 'desc')
             ->get();
 
         return response()->json($orders);
