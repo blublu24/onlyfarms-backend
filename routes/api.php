@@ -9,6 +9,7 @@ use App\Http\Controllers\OrderController;
 use App\Http\Controllers\SellerOrderController;
 use App\Http\Controllers\AddressController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\AnalyticsController;
 
 /*
 |--------------------------------------------------------------------------
@@ -31,10 +32,10 @@ Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
     ->withoutMiddleware(['auth:sanctum']);
 
 // Simulated payment results (for testing)
-Route::get('/payments/success/{id}', function($id) {
+Route::get('/payments/success/{id}', function ($id) {
     return "Payment success for order $id";
 });
-Route::get('/payments/cancel/{id}', function($id) {
+Route::get('/payments/cancel/{id}', function ($id) {
     return "Payment cancelled for order $id";
 });
 
@@ -82,4 +83,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Dashboard
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::get('/dashboard/top-purchased', [DashboardController::class, 'topPurchased']);
+
+    // Analytics
+    Route::get('/analytics/monthly-sales', [AnalyticsController::class, 'monthlySales']);
+    Route::get('/analytics/top-products', [AnalyticsController::class, 'topProducts']);
+    Route::get('/analytics/seasonal-trends', [AnalyticsController::class, 'seasonalTrends']);
 });
