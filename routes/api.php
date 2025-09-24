@@ -6,44 +6,68 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
 use App\Http\Controllers\OrderController;
-use App\Http\Controllers\AddressController;
 use App\Http\Controllers\SellerOrderController;
+use App\Http\Controllers\AddressController;
 use App\Http\Controllers\DashboardController;
 
+/*
+|--------------------------------------------------------------------------
+| Public Routes
+|--------------------------------------------------------------------------
+*/
 
-// 🔓 Public routes (no login needed)
+// Auth
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 
-Route::get('/products', [ProductController::class, 'index']);      // anyone can browse products
-Route::get('/products/{id}', [ProductController::class, 'show']); // anyone can see product details
-Route::get('/sellers', [SellerController::class, 'index']);       // anyone can browse sellers
-Route::get('/sellers/{id}', [SellerController::class, 'show']);   // anyone can view a seller
+// Products & Sellers (public browsing)
+Route::get('/products', [ProductController::class, 'index']);
+Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/sellers', [SellerController::class, 'index']);
+Route::get('/sellers/{id}', [SellerController::class, 'show']);
 
-// 🔒 Protected routes (require Sanctum token)
+// PayMongo Webhook (public, no auth)
+Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
+    ->withoutMiddleware(['auth:sanctum']);
+
+// Simulated payment results (for testing)
+Route::get('/payments/success/{id}', function($id) {
+    return "Payment success for order $id";
+});
+Route::get('/payments/cancel/{id}', function($id) {
+    return "Payment cancelled for order $id";
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| Protected Routes (require Sanctum)
+|--------------------------------------------------------------------------
+*/
 Route::middleware('auth:sanctum')->group(function () {
+
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
 
-    // Seller account management
-    Route::post('/seller/become', [SellerController::class, 'becomeSeller']); // become a seller
-    Route::get('/seller/profile', [SellerController::class, 'profile']);      // seller’s own profile
+    // Seller account
+    Route::post('/seller/become', [SellerController::class, 'becomeSeller']);
+    Route::get('/seller/profile', [SellerController::class, 'profile']);
 
     // Seller product management
-    Route::get('/seller/products', [ProductController::class, 'myProducts']); // seller’s own products
-    Route::post('/seller/products', [ProductController::class, 'store']);     // add product
-    Route::put('/seller/products/{id}', [ProductController::class, 'update']); // update product
-    Route::delete('/seller/products/{id}', [ProductController::class, 'destroy']); // delete product
+    Route::get('/seller/products', [ProductController::class, 'myProducts']);
+    Route::post('/seller/products', [ProductController::class, 'store']);
+    Route::put('/seller/products/{id}', [ProductController::class, 'update']);
+    Route::delete('/seller/products/{id}', [ProductController::class, 'destroy']);
 
-    // User orders
-    Route::get('/orders', [OrderController::class, 'index']);          // current user’s orders
-    Route::get('/orders/{order}', [OrderController::class, 'show']);   // view specific order
-    Route::post('/orders', [OrderController::class, 'store']);         // place new order
+    // Orders (buyer)
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::get('/orders/{order}', [OrderController::class, 'show']);
+    Route::post('/orders', [OrderController::class, 'store']);
 
-    // Seller orders
-    Route::get('/seller/orders', [SellerOrderController::class, 'index']);   // list all orders for seller
-    Route::get('/seller/orders/{order}', [SellerOrderController::class, 'show']); // ✅ view specific order for seller
-    Route::patch('/seller/orders/{order}/status', [SellerOrderController::class, 'updateStatus']); // update order status
+    // Orders (seller)
+    Route::get('/seller/orders', [SellerOrderController::class, 'index']);
+    Route::get('/seller/orders/{order}', [SellerOrderController::class, 'show']);
+    Route::patch('/seller/orders/{order}/status', [SellerOrderController::class, 'updateStatus']);
 
     // Addresses
     Route::get('/addresses', [AddressController::class, 'index']);
@@ -51,11 +75,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/addresses/{id}', [AddressController::class, 'update']);
     Route::delete('/addresses/{id}', [AddressController::class, 'destroy']);
 
-    //Order Payment
+    // Order Payment
     Route::post('/orders/{id}/pay', [OrderController::class, 'generatePaymentLink']);
     Route::post('/orders/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
 
+    // Dashboard
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::get('/dashboard/top-purchased', [DashboardController::class, 'topPurchased']);
-
 });

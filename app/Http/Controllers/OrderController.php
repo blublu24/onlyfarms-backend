@@ -5,11 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Address;
-use App\Models\Seller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use GuzzleHttp\Client;
 
 class OrderController extends Controller
 {
@@ -57,14 +57,12 @@ class OrderController extends Controller
             ]);
 
             $user = $request->user();
-            Log::info('Validation passed', ['address_id' => $data['address_id']]);
 
-            // ✅ Ensure address belongs to this user
+            // Ensure address belongs to this user
             $address = Address::where('address_id', $data['address_id'])
                 ->where('user_id', $user->id)
                 ->firstOrFail();
 
-            // ✅ Snapshot the address
             $deliveryAddress = $address->name . ', ' . $address->phone . ', ' . $address->address;
 
             return DB::transaction(function () use ($data, $user, $deliveryAddress) {
@@ -76,9 +74,7 @@ class OrderController extends Controller
 
                 foreach ($data['items'] as $row) {
                     $product = $products[$row['product_id']] ?? null;
-                    if (!$product) {
-                        abort(422, "Product {$row['product_id']} not found");
-                    }
+                    if (!$product) abort(422, "Product {$row['product_id']} not found");
 
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
@@ -102,7 +98,6 @@ class OrderController extends Controller
                     ];
                 }
 
-                // ✅ Create order
                 $orderData = [
                     'user_id' => $user->id,
                     'total' => $total,
@@ -110,8 +105,8 @@ class OrderController extends Controller
                     'delivery_address' => $deliveryAddress,
                     'note' => $data['notes'] ?? null,
                     'payment_method' => $data['payment_method'] ?? 'cod',
-                    'payment_link' => null,           // Day 7 addition
-                    'payment_status' => 'pending',    // Day 7 addition
+                    'payment_link' => null,
+                    'payment_status' => 'pending',
                 ];
 
                 $order = Order::create($orderData);
@@ -120,21 +115,10 @@ class OrderController extends Controller
                     $order->items()->create($li);
                 }
 
-                // ✅ Real PayMongo Checkout integration
+                // PayMongo checkout integration
                 if ($order->payment_method !== 'cod') {
-                    $amount = (int) ($order->total * 100); // convert pesos to centavos
-
-                    // 🔒 Enforce minimum ₱50.00 for online payments
-                    if ($amount < 5000) {
-                        return response()->json([
-                            'message' => 'Minimum order amount for online payment is ₱50.00',
-                            'errors' => [
-                                'total' => ['The total must be at least ₱50.00 for online payment.']
-                            ]
-                        ], 422);
-                    }
-
-                    $client = new \GuzzleHttp\Client();
+                    $amount = (int) ($order->total * 100); // in centavos
+                    $client = new Client();
 
                     $response = $client->post('https://api.paymongo.com/v1/checkout_sessions', [
                         'headers' => [
@@ -144,17 +128,18 @@ class OrderController extends Controller
                         'json' => [
                             'data' => [
                                 'attributes' => [
-                                    'line_items' => [
-                                        [
-                                            'currency' => 'PHP',
-                                            'amount' => $amount,
-                                            'name' => 'Order #' . $order->id,
-                                            'quantity' => 1,
-                                        ]
-                                    ],
+                                    'line_items' => [[
+                                        'currency' => 'PHP',
+                                        'amount' => $amount,
+                                        'name' => 'Order #' . $order->id,
+                                        'quantity' => 1,
+                                    ]],
                                     'payment_method_types' => ['gcash', 'card'],
-                                    'success_url' => url('/payments/success/' . $order->id),
-                                    'cancel_url' => url('/payments/cancel/' . $order->id),
+                                    'success_url' => url("/payments/success/{$order->id}"),
+                                    'cancel_url' => url("/payments/cancel/{$order->id}"),
+                                    'metadata' => [
+                                        'order_id' => $order->id
+                                    ],
                                 ],
                             ],
                         ],
@@ -169,7 +154,6 @@ class OrderController extends Controller
                     }
                 }
 
-
                 return response()->json([
                     'message' => 'Order created successfully',
                     'order' => $order->load('items')
@@ -181,7 +165,6 @@ class OrderController extends Controller
                 'message' => 'Validation failed',
                 'errors' => $e->errors()
             ], 422);
-
         } catch (\Exception $e) {
             Log::error('Order creation failed', [
                 'error' => $e->getMessage(),
@@ -195,40 +178,64 @@ class OrderController extends Controller
     }
 
     /**
-     * Seller: Get orders that contain their products
+     * Seller: Get orders containing their products
      */
     public function sellerOrders(Request $request)
     {
-        $user = $request->user();
-        $seller = $user->seller;
-
-        if (!$seller) {
-            return response()->json(['message' => 'You are not a seller'], 403);
-        }
+        $seller = $request->user()->seller;
+        if (!$seller) return response()->json(['message' => 'You are not a seller'], 403);
 
         $orders = Order::with(['items.product', 'user'])
-            ->whereHas('items', function ($q) use ($seller) {
-                $q->where('seller_id', $seller->id);
-            })
-            ->orderBy('created_at', 'desc')
+            ->whereHas('items', fn($q) => $q->where('seller_id', $seller->id))
+            ->orderByDesc('created_at')
             ->get();
 
         return response()->json($orders);
     }
 
     /**
-     * Seller: Update order status
+     * Seller: Update order status manually
      */
-    public function updateStatus(Request $request, $id)
-    {
-        $request->validate([
-            'status' => 'required|in:pending,processing,completed,cancelled'
+  public function handleWebhook(Request $request)
+{
+    $payload = $request->all();
+    \Log::info('Raw PayMongo payload:', $payload);
+
+    // Navigate the JSON exactly
+    $eventData = $payload['data']['attributes'] ?? null;
+
+    // Check if this is a payment.paid event
+    if ($eventData && ($eventData['type'] ?? null) === 'payment.paid') {
+        $paymentAttributes = $eventData['data']['attributes'] ?? null;
+
+        $status = $paymentAttributes['status'] ?? null;
+        $orderId = $paymentAttributes['metadata']['order_id'] ?? null;
+
+        if ($status === 'paid' && $orderId) {
+            $order = \App\Models\Order::find($orderId);
+            if ($order) {
+                $order->status = 'completed';
+                $order->payment_status = 'paid';
+                $order->save();
+
+                \Log::info("Order {$orderId} updated to paid/completed");
+            } else {
+                \Log::warning("Order {$orderId} not found");
+            }
+        } else {
+            \Log::warning("Webhook received but status not paid or orderId missing", [
+                'status' => $status,
+                'orderId' => $orderId
+            ]);
+        }
+    } else {
+        \Log::warning("Webhook received but not a payment.paid event", [
+            'event_type' => $eventData['type'] ?? null
         ]);
-
-        $order = Order::findOrFail($id);
-        $order->status = $request->status;
-        $order->save();
-
-        return response()->json($order);
     }
+
+    return response()->json(['received' => true]);
+}
+
+
 }
