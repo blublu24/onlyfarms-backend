@@ -79,6 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Order Payment
     Route::post('/orders/{id}/pay', [OrderController::class, 'generatePaymentLink']);
     Route::post('/orders/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
+    Route::post('/orders/{id}/cod-delivered', [OrderController::class, 'markCODDelivered']);
 
     // Dashboard
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
