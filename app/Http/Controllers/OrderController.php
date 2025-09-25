@@ -98,15 +98,16 @@ class OrderController extends Controller
                     ];
                 }
 
-                $orderData = [
-                    'user_id' => $user->id,
-                    'total' => $total,
-                    'status' => 'pending',
-                    'delivery_address' => $deliveryAddress,
-                    'note' => $data['notes'] ?? null,
-                    'payment_method' => $data['payment_method'] ?? 'cod',
-                    'payment_link' => null,
-                    'payment_status' => 'pending',
+            $orderData = [
+                'user_id' => $user->id,
+                'address_id' => $data['address_id'], 
+                'total' => $total,
+                'status' => 'pending',
+                'delivery_address' => $deliveryAddress,
+                'note' => $data['notes'] ?? null,
+                'payment_method' => $data['payment_method'] ?? 'cod',
+                'payment_link' => null,
+                'payment_status' => 'pending',
                 ];
 
                 $order = Order::create($orderData);
@@ -185,57 +186,107 @@ class OrderController extends Controller
         $seller = $request->user()->seller;
         if (!$seller) return response()->json(['message' => 'You are not a seller'], 403);
 
-        $orders = Order::with(['items.product', 'user'])
+        $orders = Order::with(['items.product', 'user', 'address']) // <-- add 'address'
             ->whereHas('items', fn($q) => $q->where('seller_id', $seller->id))
             ->orderByDesc('created_at')
-            ->get();
-
+            ->get()
+            ->map(function ($order) {
+                return [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                    'payment_method' => $order->payment_method,
+                    'note' => $order->note,
+                    'total' => $order->total,
+                    'items' => $order->items->map(function ($item) {
+                        return [
+                            'product_id' => $item->product_id,
+                            'name' => $item->product->product_name ?? 'N/A',
+                            'quantity' => $item->quantity,
+                            'unit' => $item->unit,
+                            'price' => $item->price,
+                        ];
+                    }),
+                    'buyer' => [
+                        'name' => $order->address?->name ?? $order->user->name ?? 'N/A',
+                        'phone' => $order->address?->phone ?? 'N/A',
+                        'address' => $order->address?->address ?? 'N/A',
+                    ],
+                ];
+            });
         return response()->json($orders);
     }
+
 
     /**
      * Seller: Update order status manually
      */
-  public function handleWebhook(Request $request)
-{
-    $payload = $request->all();
-    \Log::info('Raw PayMongo payload:', $payload);
+    public function handleWebhook(Request $request)
+    {
+        $payload = $request->all();
+        \Log::info('Raw PayMongo payload:', $payload);
 
-    // Navigate the JSON exactly
-    $eventData = $payload['data']['attributes'] ?? null;
+        // Navigate the JSON exactly
+        $eventData = $payload['data']['attributes'] ?? null;
 
-    // Check if this is a payment.paid event
-    if ($eventData && ($eventData['type'] ?? null) === 'payment.paid') {
-        $paymentAttributes = $eventData['data']['attributes'] ?? null;
+        // Check if this is a payment.paid event
+        if ($eventData && ($eventData['type'] ?? null) === 'payment.paid') {
+            $paymentAttributes = $eventData['data']['attributes'] ?? null;
 
-        $status = $paymentAttributes['status'] ?? null;
-        $orderId = $paymentAttributes['metadata']['order_id'] ?? null;
+            $status = $paymentAttributes['status'] ?? null;
+            $orderId = $paymentAttributes['metadata']['order_id'] ?? null;
 
-        if ($status === 'paid' && $orderId) {
-            $order = \App\Models\Order::find($orderId);
-            if ($order) {
-                $order->status = 'completed';
-                $order->payment_status = 'paid';
-                $order->save();
+            if ($status === 'paid' && $orderId) {
+                $order = \App\Models\Order::find($orderId);
+                if ($order) {
+                    $order->status = 'completed';
+                    $order->payment_status = 'paid';
+                    $order->save();
 
-                \Log::info("Order {$orderId} updated to paid/completed");
+                    \Log::info("Order {$orderId} updated to paid/completed");
+                } else {
+                    \Log::warning("Order {$orderId} not found");
+                }
             } else {
-                \Log::warning("Order {$orderId} not found");
+                \Log::warning("Webhook received but status not paid or orderId missing", [
+                    'status' => $status,
+                    'orderId' => $orderId
+                ]);
             }
         } else {
-            \Log::warning("Webhook received but status not paid or orderId missing", [
-                'status' => $status,
-                'orderId' => $orderId
+            \Log::warning("Webhook received but not a payment.paid event", [
+                'event_type' => $eventData['type'] ?? null
             ]);
         }
-    } else {
-        \Log::warning("Webhook received but not a payment.paid event", [
-            'event_type' => $eventData['type'] ?? null
-        ]);
+
+        return response()->json(['received' => true]);
     }
 
-    return response()->json(['received' => true]);
-}
 
+    public function markCODDelivered($id)
+    {
+        // Step 1: Find the order in the database
+        $order = Order::find($id);
+
+        // Step 2: Check if order exists
+        if (!$order) {
+            return response()->json(['message' => 'Order not found'], 404);
+        }
+
+        // Step 3: Make sure it’s COD
+        if ($order->payment_method !== 'cod') {
+            return response()->json(['message' => 'Not a COD order'], 400);
+        }
+
+        // Step 4: Update status
+        $order->status = 'completed';
+        $order->payment_status = 'paid';
+        $order->save(); // save changes to database
+
+        // Step 5: Send confirmation
+        return response()->json([
+            'message' => 'The order has been delivered.',
+            'order' => $order
+        ]);
+    }
 
 }

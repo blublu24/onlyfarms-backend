@@ -9,12 +9,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Order extends Model
 {
     protected $fillable = [
-        'user_id',           // Who placed the order (the buyer)
-        'total',             // Total cost of the whole order
-        'status',            // pending / paid / shipped / completed
-        'delivery_address',  // Where it’s going
-        'note',             // Optional instructions
-        'payment_method',   // Payment method used
+        'user_id',
+        'address_id',
+        'total',
+        'status',
+        'delivery_address',
+        'note',
+        'payment_method',
+        'payment_link',
+        'payment_status',
     ];
 
     protected $casts = [
@@ -29,5 +32,11 @@ class Order extends Model
     public function items(): HasMany
     {
         return $this->hasMany(\App\Models\OrderItem::class);
+    }
+
+    // In Order.php
+    public function address()
+    {
+        return $this->belongsTo(Address::class, 'address_id', 'address_id');
     }
 }
