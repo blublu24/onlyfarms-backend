@@ -11,12 +11,17 @@ use App\Http\Controllers\AddressController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\ReviewController;
+use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\AdminUserController;
 
 /*
 |--------------------------------------------------------------------------
 | Public Routes
 |--------------------------------------------------------------------------
 */
+
+// Admin Auth
+Route::post('/admin/login', [AdminAuthController::class, 'login']);
 
 // Auth
 Route::post('/register', [AuthController::class, 'register']);
@@ -27,6 +32,7 @@ Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
 Route::get('/sellers', [SellerController::class, 'index']);
 Route::get('/sellers/{id}', [SellerController::class, 'show']);
+
 // Reviews
 Route::get('/products/{productId}/reviews', [ReviewController::class, 'index']);
 
@@ -35,11 +41,22 @@ Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
     ->withoutMiddleware(['auth:sanctum']);
 
 // Simulated payment results (for testing)
-Route::get('/payments/success/{id}', function ($id) {
-    return "Payment success for order $id";
-});
-Route::get('/payments/cancel/{id}', function ($id) {
-    return "Payment cancelled for order $id";
+Route::get('/payments/success/{id}', fn($id) => "Payment success for order $id");
+Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id");
+
+
+/*
+|--------------------------------------------------------------------------
+| Admin-Protected Routes (require Sanctum)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
+    // Admin CRUD for users
+    Route::get('/users', [AdminUserController::class, 'index']);
+    Route::get('/users/{id}', [AdminUserController::class, 'show']);
+    Route::post('/users', [AdminUserController::class, 'store']);
+    Route::put('/users/{id}', [AdminUserController::class, 'update']);
+    Route::delete('/users/{id}', [AdminUserController::class, 'destroy']);
 });
 
 
@@ -84,7 +101,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
     Route::post('/orders/{id}/cod-delivered', [OrderController::class, 'markCODDelivered']);
 
-
     // Dashboard
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::get('/dashboard/top-purchased', [DashboardController::class, 'topPurchased']);
@@ -98,6 +114,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/products/{productId}/order-items/{orderItemId}/reviews', [ReviewController::class, 'store']);
     Route::put('/reviews/{id}', [ReviewController::class, 'update']);
     Route::delete('/reviews/{id}', [ReviewController::class, 'destroy']);
-    // Reviewable items for an order
     Route::get('/orders/{order}/reviewable-items', [ReviewController::class, 'reviewableItems']);
 });
