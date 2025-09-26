@@ -17,15 +17,21 @@ class Seller extends Model
         'business_permit',  // ✅ matches migration
     ];
 
-    // A seller belongs to a user
+    // 🔗 A seller belongs to a user
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
-    // A seller has many products
+    // 🔗 A seller has many products
     public function products()
     {
         return $this->hasMany(Product::class, 'seller_id');
+    }
+
+    // 🔗 A seller has many crop schedules
+    public function cropSchedules()
+    {
+        return $this->hasMany(CropSchedule::class, 'seller_id');
     }
 }

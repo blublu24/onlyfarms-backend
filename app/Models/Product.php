@@ -9,16 +9,16 @@ class Product extends Model
 {
     use HasFactory;
 
-    protected $primaryKey = 'product_id';
+    protected $primaryKey = 'product_id'; // ✅ matches migration
 
     protected $fillable = [
         'product_name',
         'description',
         'price',
         'image_url',
-        'seller_id', // ✅ new field for filtering & categorization
-        'avg_rating', // ✅ added
-        'ratings_count', // ✅ added
+        'seller_id',      // link to User/Seller
+        'avg_rating',     // rating stats
+        'ratings_count',
     ];
 
     protected $casts = [
@@ -44,14 +44,20 @@ class Product extends Model
     }
 
     /**
-     * Accessor: Return full image URL (frontend friendly)
+     * Relationship: Product has many crop schedules
+     * ✅ Connects crop schedules to product for automatic crop_name assignment
+     */
+    public function cropSchedules()
+    {
+        return $this->hasMany(CropSchedule::class, 'product_id', 'product_id');
+    }
+
+    /**
+     * Accessor: Return full image URL (frontend-friendly)
      */
     public function getImageUrlAttribute($value)
     {
-        if ($value) {
-            return url('storage/' . $value); // ✅ Always return full URL
-        }
-        return null;
+        return $value ? url('storage/' . $value) : null;
     }
 
     /**

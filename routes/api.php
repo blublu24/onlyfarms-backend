@@ -13,6 +13,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\AdminAuthController;
 use App\Http\Controllers\AdminUserController;
+use App\Http\Controllers\CropScheduleController;
 
 /*
 |--------------------------------------------------------------------------
@@ -115,4 +116,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/reviews/{id}', [ReviewController::class, 'update']);
     Route::delete('/reviews/{id}', [ReviewController::class, 'destroy']);
     Route::get('/orders/{order}/reviewable-items', [ReviewController::class, 'reviewableItems']);
+
+    // Crop Schedules
+    Route::apiResource('crop-schedules', CropScheduleController::class);
 });
