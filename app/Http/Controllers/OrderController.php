@@ -74,7 +74,8 @@ class OrderController extends Controller
 
                 foreach ($data['items'] as $row) {
                     $product = $products[$row['product_id']] ?? null;
-                    if (!$product) abort(422, "Product {$row['product_id']} not found");
+                    if (!$product)
+                        abort(422, "Product {$row['product_id']} not found");
 
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
@@ -98,16 +99,16 @@ class OrderController extends Controller
                     ];
                 }
 
-            $orderData = [
-                'user_id' => $user->id,
-                'address_id' => $data['address_id'], 
-                'total' => $total,
-                'status' => 'pending',
-                'delivery_address' => $deliveryAddress,
-                'note' => $data['notes'] ?? null,
-                'payment_method' => $data['payment_method'] ?? 'cod',
-                'payment_link' => null,
-                'payment_status' => 'pending',
+                $orderData = [
+                    'user_id' => $user->id,
+                    'address_id' => $data['address_id'],
+                    'total' => $total,
+                    'status' => 'pending',
+                    'delivery_address' => $deliveryAddress,
+                    'note' => $data['notes'] ?? null,
+                    'payment_method' => $data['payment_method'] ?? 'cod',
+                    'payment_link' => null,
+                    'payment_status' => 'pending',
                 ];
 
                 $order = Order::create($orderData);
@@ -129,12 +130,14 @@ class OrderController extends Controller
                         'json' => [
                             'data' => [
                                 'attributes' => [
-                                    'line_items' => [[
-                                        'currency' => 'PHP',
-                                        'amount' => $amount,
-                                        'name' => 'Order #' . $order->id,
-                                        'quantity' => 1,
-                                    ]],
+                                    'line_items' => [
+                                        [
+                                            'currency' => 'PHP',
+                                            'amount' => $amount,
+                                            'name' => 'Order #' . $order->id,
+                                            'quantity' => 1,
+                                        ]
+                                    ],
                                     'payment_method_types' => ['gcash', 'card'],
                                     'success_url' => url("/payments/success/{$order->id}"),
                                     'cancel_url' => url("/payments/cancel/{$order->id}"),
@@ -184,7 +187,8 @@ class OrderController extends Controller
     public function sellerOrders(Request $request)
     {
         $seller = $request->user()->seller;
-        if (!$seller) return response()->json(['message' => 'You are not a seller'], 403);
+        if (!$seller)
+            return response()->json(['message' => 'You are not a seller'], 403);
 
         $orders = Order::with(['items.product', 'user', 'address']) // <-- add 'address'
             ->whereHas('items', fn($q) => $q->where('seller_id', $seller->id))
@@ -262,29 +266,39 @@ class OrderController extends Controller
     }
 
 
+    // ✅ New private helper
+    private function markAsCompleted(Order $order)
+    {
+        $order->status = 'completed';
+
+        // If not yet marked as paid, update payment_status
+        if ($order->payment_status === 'pending') {
+            $order->payment_status = 'paid';
+        }
+
+        $order->save();
+    }
+
+    /**
+     * Seller: Mark COD order as delivered
+     */
     public function markCODDelivered($id)
     {
-        // Step 1: Find the order in the database
         $order = Order::find($id);
 
-        // Step 2: Check if order exists
         if (!$order) {
             return response()->json(['message' => 'Order not found'], 404);
         }
 
-        // Step 3: Make sure it’s COD
         if ($order->payment_method !== 'cod') {
             return response()->json(['message' => 'Not a COD order'], 400);
         }
 
-        // Step 4: Update status
-        $order->status = 'completed';
-        $order->payment_status = 'paid';
-        $order->save(); // save changes to database
+        // ✅ Use the helper
+        $this->markAsCompleted($order);
 
-        // Step 5: Send confirmation
         return response()->json([
-            'message' => 'The order has been delivered.',
+            'message' => 'The COD order has been delivered and marked as paid.',
             'order' => $order
         ]);
     }
