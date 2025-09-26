@@ -10,6 +10,7 @@ use App\Http\Controllers\SellerOrderController;
 use App\Http\Controllers\AddressController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\ReviewController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,8 @@ Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
 Route::get('/sellers', [SellerController::class, 'index']);
 Route::get('/sellers/{id}', [SellerController::class, 'show']);
+// Reviews
+Route::get('/products/{productId}/reviews', [ReviewController::class, 'index']);
 
 // PayMongo Webhook (public, no auth)
 Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
@@ -81,6 +84,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
     Route::post('/orders/{id}/cod-delivered', [OrderController::class, 'markCODDelivered']);
 
+
     // Dashboard
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::get('/dashboard/top-purchased', [DashboardController::class, 'topPurchased']);
@@ -89,4 +93,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/analytics/monthly-sales', [AnalyticsController::class, 'monthlySales']);
     Route::get('/analytics/top-products', [AnalyticsController::class, 'topProducts']);
     Route::get('/analytics/seasonal-trends', [AnalyticsController::class, 'seasonalTrends']);
+
+    // Reviews
+    Route::post('/products/{productId}/order-items/{orderItemId}/reviews', [ReviewController::class, 'store']);
+    Route::put('/reviews/{id}', [ReviewController::class, 'update']);
+    Route::delete('/reviews/{id}', [ReviewController::class, 'destroy']);
+    // Reviewable items for an order
+    Route::get('/orders/{order}/reviewable-items', [ReviewController::class, 'reviewableItems']);
 });

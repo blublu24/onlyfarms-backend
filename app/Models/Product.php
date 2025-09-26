@@ -17,10 +17,14 @@ class Product extends Model
         'price',
         'image_url',
         'seller_id', // ✅ new field for filtering & categorization
+        'avg_rating', // ✅ added
+        'ratings_count', // ✅ added
     ];
 
     protected $casts = [
         'price' => 'decimal:2',
+        'avg_rating' => 'decimal:2',
+        'ratings_count' => 'integer',
     ];
 
     /**
@@ -32,6 +36,14 @@ class Product extends Model
     }
 
     /**
+     * Relationship: Product has many reviews
+     */
+    public function reviews()
+    {
+        return $this->hasMany(Review::class, 'product_id', 'product_id');
+    }
+
+    /**
      * Accessor: Return full image URL (frontend friendly)
      */
     public function getImageUrlAttribute($value)
@@ -40,5 +52,15 @@ class Product extends Model
             return url('storage/' . $value); // ✅ Always return full URL
         }
         return null;
+    }
+
+    /**
+     * Helper: Recalculate avg_rating & ratings_count based on reviews
+     */
+    public function updateRatingStats()
+    {
+        $this->avg_rating = $this->reviews()->avg('rating') ?? 0;
+        $this->ratings_count = $this->reviews()->count();
+        $this->save();
     }
 }
