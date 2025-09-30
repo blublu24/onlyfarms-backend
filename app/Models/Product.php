@@ -27,6 +27,9 @@ class Product extends Model
         'ratings_count' => 'integer',
     ];
 
+    // 👇 Automatically include in API response
+    protected $appends = ['fixed_image_url'];
+
     /**
      * Relationship: Product belongs to a seller (User)
      */
@@ -58,6 +61,31 @@ class Product extends Model
     public function getImageUrlAttribute($value)
     {
         return $value ? url('storage/' . $value) : null;
+    }
+
+    /**
+     * New Accessor: Fix duplicate "storage/storage" issues
+     */
+    public function getFixedImageUrlAttribute()
+    {
+        $value = $this->attributes['image_url'] ?? null;
+
+        if (!$value) {
+            return null;
+        }
+
+        // Already a full URL
+        if (str_starts_with($value, 'http')) {
+            return $value;
+        }
+
+        // Already starts with "storage/"
+        if (str_starts_with($value, 'storage/')) {
+            return url($value);
+        }
+
+        // Default case
+        return url('storage/' . $value);
     }
 
     /**

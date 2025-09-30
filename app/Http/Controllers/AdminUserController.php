@@ -4,10 +4,49 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\User;
+use App\Models\Product; // ✅ Import Product model
 use Illuminate\Support\Facades\Hash;
 
 class AdminUserController extends Controller
 {
+    public function products($id)
+    {
+        $user = User::with('products')->find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        return response()->json($user->products);
+    }
+
+    // ✅ Update a specific product for a user
+    public function updateProduct(Request $request, $userId, $productId)
+    {
+        $product = Product::where('user_id', $userId)->find($productId);
+
+        if (!$product) {
+            return response()->json(['message' => 'Product not found'], 404);
+        }
+
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'description' => 'sometimes|string|nullable',
+            'price' => 'sometimes|numeric|min:0',
+        ]);
+
+        if ($request->has('name')) $product->name = $request->name;
+        if ($request->has('description')) $product->description = $request->description;
+        if ($request->has('price')) $product->price = $request->price;
+
+        $product->save();
+
+        return response()->json([
+            'message' => 'Product updated successfully',
+            'product' => $product
+        ]);
+    }
+
     // No constructor needed for middleware, it's handled in api.php
 
     // 1. List all users

@@ -14,6 +14,8 @@ use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\AdminAuthController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\CropScheduleController;
+use App\Http\Controllers\AdminProductController;
+use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
 
 /*
 |--------------------------------------------------------------------------
@@ -53,11 +55,23 @@ Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id"
 */
 Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
     // Admin CRUD for users
+    Route::put('/users/{userId}/products/{productId}', [AdminUserController::class, 'updateProduct']);
+    Route::get('/users/{id}/products', [AdminUserController::class, 'products']);
     Route::get('/users', [AdminUserController::class, 'index']);
     Route::get('/users/{id}', [AdminUserController::class, 'show']);
     Route::post('/users', [AdminUserController::class, 'store']);
     Route::put('/users/{id}', [AdminUserController::class, 'update']);
     Route::delete('/users/{id}', [AdminUserController::class, 'destroy']);
+
+    // ✅ Admin CRUD for products
+    Route::post('/admin/products/{id}', [AdminProductController::class, 'update']);
+    Route::get('/products/{id}', [AdminProductController::class, 'show']);
+    Route::post('/products/{id}', [AdminProductController::class, 'update']); // with _method=PUT
+    Route::put('/products/{id}', [AdminProductController::class, 'update']);
+    Route::delete('/products/{id}', [AdminProductController::class, 'destroy']);
+
+    // ✅ New: Fetch all products of a specific seller (for admin-user-products)
+    Route::get('/users/{sellerId}/products-list', [MainProductController::class, 'getUserProducts']);
 });
 
 

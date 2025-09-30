@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Product;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
@@ -28,7 +29,10 @@ class ProductController extends Controller
             return $p;
         });
 
-        return response()->json($products);
+        return response()->json([
+            'message' => 'Products fetched successfully',
+            'data' => $products
+        ]);
     }
 
     /**
@@ -39,7 +43,10 @@ class ProductController extends Controller
         $product = Product::with('user')->findOrFail($id);
         $product->full_image_url = $product->image_url ? asset('storage/' . $product->image_url) : null;
 
-        return response()->json($product);
+        return response()->json([
+            'message' => 'Product fetched successfully',
+            'data' => $product
+        ]);
     }
 
     /**
@@ -74,7 +81,7 @@ class ProductController extends Controller
 
         return response()->json([
             'message' => 'Product created successfully',
-            'product' => $product,
+            'data' => $product,
         ], 201);
     }
 
@@ -100,6 +107,11 @@ class ProductController extends Controller
         ]);
 
         if ($request->hasFile('image')) {
+            // 🔥 Delete old image if exists
+            if ($product->image_url && Storage::disk('public')->exists($product->image_url)) {
+                Storage::disk('public')->delete($product->image_url);
+            }
+
             $path = $request->file('image')->store('products', 'public');
             $validated['image_url'] = $path;
         }
@@ -109,7 +121,7 @@ class ProductController extends Controller
 
         return response()->json([
             'message' => 'Product updated successfully',
-            'product' => $product,
+            'data' => $product,
         ]);
     }
 
@@ -123,6 +135,11 @@ class ProductController extends Controller
 
         if ($product->seller_id !== $user->id) {
             return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        // 🔥 Delete product image if exists
+        if ($product->image_url && Storage::disk('public')->exists($product->image_url)) {
+            Storage::disk('public')->delete($product->image_url);
         }
 
         $product->delete();
@@ -146,6 +163,25 @@ class ProductController extends Controller
             return $p;
         });
 
-        return response()->json($products);
+        return response()->json([
+            'message' => 'My products fetched successfully',
+            'data' => $products
+        ]);
+    }
+
+    /**
+     * 🔥 Admin: Get products by user (for admin-user-products page).
+     */
+    public function getUserProducts($sellerId)
+    {
+        $products = Product::where('seller_id', $sellerId)->get()->map(function ($p) {
+            $p->full_image_url = $p->image_url ? asset('storage/' . $p->image_url) : null;
+            return $p;
+        });
+
+        return response()->json([
+            'message' => 'User products fetched successfully',
+            'data' => $products
+        ]);
     }
 }
