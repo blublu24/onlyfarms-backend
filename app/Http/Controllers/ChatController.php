@@ -1,0 +1,150 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Conversation;
+use App\Models\Message;
+use App\Models\Seller;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Events\MessageSent;
+
+class ChatController extends Controller
+{
+    public function createConversation(Request $request)
+    {
+        $authId = auth()->id();
+
+        $data = $request->validate([
+            'buyer_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
+            'seller_id' => ['required', 'integer'], // This is user_id of seller
+            'product_id' => ['nullable', 'integer'],
+        ]);
+
+        $buyerId = $data['buyer_id'] ?? $authId;
+        $sellerUserId = $data['seller_id'];
+        $productId = $data['product_id'] ?? null;
+
+        // Find seller by user_id
+        $seller = Seller::where('user_id', $sellerUserId)->first();
+
+        if (!$seller) {
+            return response()->json(['error' => 'Seller not found'], 404);
+        }
+
+        if ($productId !== null) {
+            $productExists = \DB::table('products')
+                ->where('product_id', $productId)
+                ->exists();
+
+            if (!$productExists) {
+                return response()->json(['error' => 'Product not found'], 404);
+            }
+        }
+
+        if ($authId !== $buyerId && $authId !== $sellerUserId) {
+            return response()->json(['error' => 'You must be one of the conversation participants.'], 403);
+        }
+
+        $conversation = Conversation::where('buyer_id', $buyerId)
+            ->where('seller_id', $seller->id) // store seller DB id
+            ->first();
+
+        if (!$conversation) {
+            $conversation = Conversation::create([
+                'buyer_id' => $buyerId,
+                'seller_id' => $seller->id,
+                'product_id' => $productId,
+                'last_message_at' => null,
+            ]);
+        }
+
+        $conversation->load(['latestMessage', 'buyer', 'seller.user']);
+        return response()->json($conversation, $conversation->wasRecentlyCreated ? 201 : 200);
+    }
+
+
+    public function sendMessage(Request $request, $conversationId)
+    {
+        $request->validate([
+            'body' => 'required|string',
+        ]);
+
+        $conversation = Conversation::with('seller')->findOrFail($conversationId);
+        $authId = auth()->id();
+
+        $sellerUserId = $conversation->seller->user_id ?? null;
+
+        if ($authId !== $conversation->buyer_id && $authId !== $sellerUserId) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $message = Message::create([
+            'conversation_id' => $conversation->id,
+            'sender_id' => $authId,
+            'body' => $request->input('body'),
+        ]);
+
+        $conversation->update(['last_message_at' => now()]);
+
+        $message->load('sender');
+
+        // Broadcast to the private conversation channel
+        broadcast(new MessageSent($message))->toOthers();
+
+        return response()->json([
+            'id' => $message->id,
+            'conversation_id' => $conversation->id,
+            'sender_id' => $message->sender_id,
+            'sender_name' => $message->sender->name ?? null,
+            'body' => $message->body,
+            'created_at' => $message->created_at->toDateTimeString(),
+        ], 201);
+    }
+
+    public function listConversations()
+    {
+        $authId = auth()->id();
+
+        $conversations = Conversation::with(['seller.user', 'buyer', 'latestMessage'])
+            ->where('buyer_id', $authId)
+            ->orWhereHas('seller.user', function ($q) use ($authId) {
+                $q->where('id', $authId);
+            })
+            ->orderByDesc('last_message_at')
+            ->get();
+
+        return response()->json($conversations->map(function ($c) use ($authId) {
+            $other = $c->buyer_id == $authId ? $c->seller->user : $c->buyer;
+
+            return [
+                'id' => $c->id,
+                'product_id' => $c->product_id,
+                'other_user' => [
+                    'id' => $other->id ?? null,
+                    'name' => $other->name ?? $c->seller->shop_name ?? "Unknown Seller",
+                ],
+                'last_message' => optional($c->latestMessage)->body,
+                'updated_at' => $c->updated_at,
+            ];
+        }));
+    }
+
+    public function listMessages(Request $request, $conversationId)
+    {
+        $conversation = Conversation::with('seller')->findOrFail($conversationId);
+        $authId = auth()->id();
+        $sellerUserId = $conversation->seller->user_id ?? null;
+
+        if ($authId !== $conversation->buyer_id && $authId !== $sellerUserId) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $messages = $conversation->messages()
+            ->with('sender:id,name')
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        return response()->json($messages);
+    }
+}
