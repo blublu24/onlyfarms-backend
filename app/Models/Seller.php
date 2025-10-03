@@ -20,7 +20,7 @@ class Seller extends Model
     // 🔗 A seller belongs to a user
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'user_id');
     }
 
     // 🔗 A seller has many products
@@ -33,5 +33,10 @@ class Seller extends Model
     public function cropSchedules()
     {
         return $this->hasMany(CropSchedule::class, 'seller_id');
+    }
+
+    public function conversations()
+    {
+        return $this->hasMany(Conversation::class, 'seller_id');
     }
 }

@@ -35,7 +35,7 @@ class Product extends Model
      */
     public function user()
     {
-        return $this->belongsTo(User::class, 'seller_id', 'id');
+        return $this->belongsTo(User::class, 'seller_id');
     }
 
     /**
@@ -96,5 +96,15 @@ class Product extends Model
         $this->avg_rating = $this->reviews()->avg('rating') ?? 0;
         $this->ratings_count = $this->reviews()->count();
         $this->save();
+    }
+
+    public function seller()
+    {
+        return $this->hasOne(\App\Models\Seller::class, 'user_id', 'seller_id');
+    }
+
+    public function conversations()
+    {
+        return $this->hasMany(Conversation::class, 'product_id');
     }
 }

@@ -16,6 +16,7 @@ use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\CropScheduleController;
 use App\Http\Controllers\AdminProductController;
 use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
+use App\Http\Controllers\ChatController;
 
 /*
 |--------------------------------------------------------------------------
@@ -134,4 +135,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Crop Schedules
     Route::apiResource('crop-schedules', CropScheduleController::class);
+
+    //Messaging (Chat)
+    Route::post('/conversations', [ChatController::class, 'createConversation']);
+    Route::post('/conversations/{id}/messages', [ChatController::class, 'sendMessage']);
+    Route::get('/conversations', [ChatController::class, 'listConversations']);
+    Route::get('/conversations/{id}/messages', [ChatController::class, 'listMessages']);
+    Route::get('/conversations/{id}/listen', [ChatController::class, 'listen']);
+    Route::post('/conversations/{id}/mark-read', [ChatController::class, 'markAsRead']);
 });
+
+

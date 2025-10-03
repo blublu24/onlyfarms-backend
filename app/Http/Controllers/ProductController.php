@@ -14,7 +14,7 @@ class ProductController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Product::query();
+        $query = Product::with('seller'); // Eager-load seller
 
         if ($request->has('category')) {
             $query->where('category', $request->category);
@@ -25,8 +25,16 @@ class ProductController extends Controller
         }
 
         $products = $query->get()->map(function ($p) {
-            $p->full_image_url = $p->image_url ? asset('storage/' . $p->image_url) : null;
-            return $p;
+            return [
+                'product_id' => $p->product_id,
+                'product_name' => $p->product_name,
+                'image_url' => $p->image_url ? asset('storage/' . $p->image_url) : null,
+                'price' => $p->price,
+                'description' => $p->description,
+                'category' => $p->category,
+                'seller_name' => $p->seller?->shop_name ?? 'Unknown Seller', // ✅ shop_name from sellers table
+                'seller_id' => $p->seller_id,
+            ];
         });
 
         return response()->json([
@@ -62,11 +70,11 @@ class ProductController extends Controller
 
         $validated = $request->validate([
             'product_name' => 'required|string|max:255',
-            'description'  => 'nullable|string',
-            'category'     => 'nullable|string|max:255',
-            'price'        => 'required|numeric|min:0',
-            'unit'         => 'required|string|max:50',
-            'image_url'    => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'description' => 'nullable|string',
+            'category' => 'nullable|string|max:255',
+            'price' => 'required|numeric|min:0',
+            'unit' => 'required|string|max:50',
+            'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
         if ($request->hasFile('image_url')) {
@@ -99,11 +107,11 @@ class ProductController extends Controller
 
         $validated = $request->validate([
             'product_name' => 'sometimes|string|max:255',
-            'description'  => 'nullable|string',
-            'category'     => 'nullable|string|max:255',
-            'price'        => 'sometimes|numeric|min:0',
-            'unit'         => 'sometimes|string|max:50',
-            'image_url'    => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'description' => 'nullable|string',
+            'category' => 'nullable|string|max:255',
+            'price' => 'sometimes|numeric|min:0',
+            'unit' => 'sometimes|string|max:50',
+            'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
         if ($request->hasFile('image_url')) {
