@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Product; // ✅ Import Product model
+use App\Models\Order;   // ✅ Import Order model
 use Illuminate\Support\Facades\Hash;
 
 class AdminUserController extends Controller
@@ -119,5 +120,45 @@ class AdminUserController extends Controller
         $user->delete();
 
         return response()->json(['message' => 'User deleted successfully']);
+    }
+
+    // 6. ✅ Admin: Get all orders for a specific user
+    public function userOrders($id)
+    {
+        $user = User::find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        $orders = Order::with(['items.product', 'address'])
+            ->where('user_id', $id)
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function ($order) {
+                return [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                    'payment_method' => $order->payment_method,
+                    'note' => $order->note,
+                    'total' => $order->total,
+                    'items' => $order->items->map(function ($item) {
+                        return [
+                            'product_id' => $item->product_id,
+                            'name' => $item->product->product_name ?? 'N/A',
+                            'quantity' => $item->quantity,
+                            'unit' => $item->unit,
+                            'price' => $item->price,
+                        ];
+                    }),
+                    'buyer' => [
+                        'name' => $order->address?->name ?? $order->user->name ?? 'N/A',
+                        'phone' => $order->address?->phone ?? 'N/A',
+                        'address' => $order->address?->address ?? 'N/A',
+                    ],
+                ];
+            });
+
+        return response()->json($orders);
     }
 }

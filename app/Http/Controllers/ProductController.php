@@ -66,11 +66,11 @@ class ProductController extends Controller
             'category'     => 'nullable|string|max:255',
             'price'        => 'required|numeric|min:0',
             'unit'         => 'required|string|max:50',
-            'image'        => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'image_url'    => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
-        if ($request->hasFile('image')) {
-            $path = $request->file('image')->store('products', 'public');
+        if ($request->hasFile('image_url')) {
+            $path = $request->file('image_url')->store('products', 'public');
             $validated['image_url'] = $path;
         }
 
@@ -103,25 +103,32 @@ class ProductController extends Controller
             'category'     => 'nullable|string|max:255',
             'price'        => 'sometimes|numeric|min:0',
             'unit'         => 'sometimes|string|max:50',
-            'image'        => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'image_url'    => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
-        if ($request->hasFile('image')) {
+        if ($request->hasFile('image_url')) {
             // 🔥 Delete old image if exists
             if ($product->image_url && Storage::disk('public')->exists($product->image_url)) {
                 Storage::disk('public')->delete($product->image_url);
             }
 
-            $path = $request->file('image')->store('products', 'public');
+            $path = $request->file('image_url')->store('products', 'public');
             $validated['image_url'] = $path;
+        } elseif ($request->has('image_url') && $request->image_url === "") {
+            // If explicitly cleared
+            if ($product->image_url && Storage::disk('public')->exists($product->image_url)) {
+                Storage::disk('public')->delete($product->image_url);
+            }
+            $validated['image_url'] = null;
         }
 
         $product->update($validated);
         $product->full_image_url = $product->image_url ? asset('storage/' . $product->image_url) : null;
 
+        // ✅ Match AdminProductController response format
         return response()->json([
             'message' => 'Product updated successfully',
-            'data' => $product,
+            'product' => $product
         ]);
     }
 

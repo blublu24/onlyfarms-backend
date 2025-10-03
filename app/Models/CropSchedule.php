@@ -12,12 +12,13 @@ class CropSchedule extends Model
     protected $fillable = [
         'seller_id',
         'product_id',
-        'crop_name',              // ✅ added so it can be auto-filled
+        'crop_name',              // Added to auto-fill the crop name
         'planting_date',
         'expected_harvest_start',
         'expected_harvest_end',
         'quantity_estimate',
         'quantity_unit',
+        'status',                 // Added for status tracking (Planted, Growing, Ready for Harvest, Harvested)
         'is_active',
         'notes',
     ];

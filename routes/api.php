@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
     Route::post('/users', [AdminUserController::class, 'store']);
     Route::put('/users/{id}', [AdminUserController::class, 'update']);
     Route::delete('/users/{id}', [AdminUserController::class, 'destroy']);
+    Route::get('/users/{id}/orders', [AdminUserController::class, 'userOrders']); // ✅ NEW
 
     // ✅ Admin CRUD for products
     Route::post('/admin/products/{id}', [AdminProductController::class, 'update']);
