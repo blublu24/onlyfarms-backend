@@ -33,7 +33,9 @@ class ProductController extends Controller
                 'product_name' => $p->product_name,
                 'image_url' => $imageUrl, // ✅ Use model accessor
                 'fixed_image_url' => $imageUrl, // ✅ Use model accessor
-                'price' => $p->price,
+                'price_kg' => $p->price_kg,
+                'price_bunches' => $p->price_bunches,
+                'stocks' => $p->stocks,
                 'description' => $p->description,
                 'category' => $p->category,
                 'seller_name' => $p->seller?->shop_name ?? 'Unknown Seller', // ✅ shop_name from sellers table
@@ -74,14 +76,36 @@ class ProductController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
+        // Pre-process the request data to handle empty strings
+        $requestData = $request->all();
+        if (isset($requestData['price_kg']) && $requestData['price_kg'] === '') {
+            $requestData['price_kg'] = null;
+        }
+        if (isset($requestData['price_bunches']) && $requestData['price_bunches'] === '') {
+            $requestData['price_bunches'] = null;
+        }
+
+        // Merge the processed data back into the request
+        $request->merge($requestData);
+
         $validated = $request->validate([
             'product_name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'category' => 'nullable|string|max:255',
-            'price' => 'required|numeric|min:0',
+            'price_kg' => 'nullable|numeric|min:0',
+            'price_bunches' => 'nullable|numeric|min:0',
+            'stocks' => 'required|numeric|min:0',
             'unit' => 'required|string|max:50',
             'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
+
+        // Ensure at least one price is provided
+        $hasPrice = (!empty($validated['price_kg']) && $validated['price_kg'] > 0) ||
+                    (!empty($validated['price_bunches']) && $validated['price_bunches'] > 0);
+        
+        if (!$hasPrice) {
+            return response()->json(['error' => 'At least one price (price_kg or price_bunches) must be provided and greater than 0'], 422);
+        }
 
         if ($request->hasFile('image_url')) {
             $path = $request->file('image_url')->store('products', 'public');
@@ -89,6 +113,7 @@ class ProductController extends Controller
         }
 
         $validated['seller_id'] = $user->id;
+
 
         $product = Product::create($validated);
         $imageUrl = $product->image_url; // ✅ Use model accessor
@@ -113,14 +138,41 @@ class ProductController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
+        // Pre-process the request data to handle empty strings
+        $requestData = $request->all();
+        if (isset($requestData['price_kg']) && $requestData['price_kg'] === '') {
+            $requestData['price_kg'] = null;
+        }
+        if (isset($requestData['price_bunches']) && $requestData['price_bunches'] === '') {
+            $requestData['price_bunches'] = null;
+        }
+
+        // Merge the processed data back into the request
+        $request->merge($requestData);
+
         $validated = $request->validate([
             'product_name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'category' => 'nullable|string|max:255',
-            'price' => 'sometimes|numeric|min:0',
+            'price_kg' => 'nullable|numeric|min:0',
+            'price_bunches' => 'nullable|numeric|min:0',
+            'stocks' => 'sometimes|numeric|min:0',
             'unit' => 'sometimes|string|max:50',
             'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
+
+        // Debug: Log what we received
+        \Log::info('Product update request data:', $request->all());
+        \Log::info('Validated data:', $validated);
+
+        // Ensure at least one price is provided
+        $hasPrice = (!empty($validated['price_kg']) && $validated['price_kg'] > 0) ||
+                    (!empty($validated['price_bunches']) && $validated['price_bunches'] > 0);
+        
+        if (!$hasPrice) {
+            return response()->json(['error' => 'At least one price (price_kg or price_bunches) must be provided and greater than 0'], 422);
+        }
+
 
         if ($request->hasFile('image_url')) {
             // 🔥 Delete old image if exists

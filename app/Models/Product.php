@@ -22,7 +22,9 @@ class Product extends Model
     protected $fillable = [
         'product_name',
         'description',
-        'price',
+        'price_kg',
+        'price_bunches',
+        'stocks',
         'image_url',
         'seller_id',
 
@@ -40,7 +42,9 @@ class Product extends Model
      * Attribute casting for database fields.
      */
     protected $casts = [
-        'price' => 'decimal:2',
+        'price_kg' => 'decimal:2',
+        'price_bunches' => 'decimal:2',
+        'stocks' => 'decimal:2',
         'avg_rating' => 'decimal:2',
         'ratings_count' => 'integer',
         'manual_availability_date' => 'date',

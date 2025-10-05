@@ -56,7 +56,7 @@ class OrderController extends Controller
                 'items' => 'required|array|min:1',
                 'items.*.product_id' => 'required|integer|exists:products,product_id',
                 'items.*.quantity' => 'required|integer|min:1|max:999',
-                'items.*.unit' => 'required|string|in:kg,sack,piece',
+                'items.*.unit' => 'required|string|in:kg,bunches',
                 'address_id' => 'required|exists:addresses,address_id',
                 'notes' => 'nullable|string|max:500',
                 'payment_method' => 'nullable|string|in:cod,gcash,card',
@@ -85,7 +85,16 @@ class OrderController extends Controller
 
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
-                    $unitPrice = (float) $product->price;
+                    // Determine price based on unit
+                    $unitPrice = 0;
+                    if ($unit === 'kg' && $product->price_kg) {
+                        $unitPrice = (float) $product->price_kg;
+                    } elseif ($unit === 'bunches' && $product->price_bunches) {
+                        $unitPrice = (float) $product->price_bunches;
+                    } else {
+                        // Fallback to old price field if new pricing not available
+                        $unitPrice = (float) $product->price ?? 0;
+                    }
                     $lineTotal = round($unitPrice * $qty, 2);
                     $total = round($total + $lineTotal, 2);
 
@@ -213,7 +222,9 @@ class OrderController extends Controller
                             'name' => $item->product->product_name ?? 'N/A',
                             'quantity' => $item->quantity,
                             'unit' => $item->unit,
-                            'price' => $item->price,
+                            'price' => $item->price, // This is the snapshot price from order_items
+                            'price_kg' => $item->product->price_kg ?? null,
+                            'price_bunches' => $item->product->price_bunches ?? null,
                         ];
                     }),
                     'buyer' => [
