@@ -23,7 +23,10 @@ class OrderController extends Controller
             ->latest()
             ->get();
 
-        return response()->json($orders);
+        return response()->json([
+            'message' => 'Orders fetched successfully',
+            'data' => $orders
+        ]);
     }
 
     /**
@@ -35,7 +38,10 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return response()->json($order->load('items'));
+        return response()->json([
+            'message' => 'Order fetched successfully',
+            'data' => $order->load('items')
+        ]);
     }
 
     /**
@@ -217,7 +223,10 @@ class OrderController extends Controller
                     ],
                 ];
             });
-        return response()->json($orders);
+        return response()->json([
+            'message' => 'Seller orders fetched successfully',
+            'data' => $orders
+        ]);
     }
 
 

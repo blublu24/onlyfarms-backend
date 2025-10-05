@@ -25,10 +25,14 @@ class ProductController extends Controller
         }
 
         $products = $query->get()->map(function ($p) {
+            // ✅ Get the image URL from the model (which handles storage/ prefix)
+            $imageUrl = $p->image_url;
+            
             return [
                 'product_id' => $p->product_id,
                 'product_name' => $p->product_name,
-                'image_url' => $p->image_url ? asset('storage/' . $p->image_url) : null,
+                'image_url' => $imageUrl, // ✅ Use model accessor
+                'fixed_image_url' => $imageUrl, // ✅ Use model accessor
                 'price' => $p->price,
                 'description' => $p->description,
                 'category' => $p->category,
@@ -49,7 +53,9 @@ class ProductController extends Controller
     public function show($id)
     {
         $product = Product::with('user')->findOrFail($id);
-        $product->full_image_url = $product->image_url ? asset('storage/' . $product->image_url) : null;
+        $imageUrl = $product->image_url; // ✅ Use model accessor
+        $product->full_image_url = $imageUrl;
+        $product->fixed_image_url = $imageUrl;
 
         return response()->json([
             'message' => 'Product fetched successfully',
@@ -85,7 +91,9 @@ class ProductController extends Controller
         $validated['seller_id'] = $user->id;
 
         $product = Product::create($validated);
-        $product->full_image_url = $product->image_url ? asset('storage/' . $product->image_url) : null;
+        $imageUrl = $product->image_url; // ✅ Use model accessor
+        $product->full_image_url = $imageUrl;
+        $product->fixed_image_url = $imageUrl;
 
         return response()->json([
             'message' => 'Product created successfully',
@@ -131,7 +139,9 @@ class ProductController extends Controller
         }
 
         $product->update($validated);
-        $product->full_image_url = $product->image_url ? asset('storage/' . $product->image_url) : null;
+        $imageUrl = $product->image_url; // ✅ Use model accessor
+        $product->full_image_url = $imageUrl;
+        $product->fixed_image_url = $imageUrl;
 
         // ✅ Match AdminProductController response format
         return response()->json([
@@ -174,7 +184,9 @@ class ProductController extends Controller
         }
 
         $products = Product::where('seller_id', $user->id)->get()->map(function ($p) {
-            $p->full_image_url = $p->image_url ? asset('storage/' . $p->image_url) : null;
+            $imageUrl = $p->image_url; // ✅ Use model accessor
+            $p->full_image_url = $imageUrl;
+            $p->fixed_image_url = $imageUrl;
             return $p;
         });
 
@@ -190,7 +202,9 @@ class ProductController extends Controller
     public function getUserProducts($sellerId)
     {
         $products = Product::where('seller_id', $sellerId)->get()->map(function ($p) {
-            $p->full_image_url = $p->image_url ? asset('storage/' . $p->image_url) : null;
+            $imageUrl = $p->image_url; // ✅ Use model accessor
+            $p->full_image_url = $imageUrl;
+            $p->fixed_image_url = $imageUrl;
             return $p;
         });
 

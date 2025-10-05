@@ -90,11 +90,20 @@ class Product extends Model
      ============================== */
 
     /**
-     * Accessor: Return full image URL for the frontend.
+     * Accessor: Return relative path for the frontend.
      */
     public function getImageUrlAttribute($value)
     {
-        return $value ? url('storage/' . $value) : null;
+        if (!$value) {
+            return null;
+        }
+        
+        // ✅ Avoid double "storage/" - if already starts with storage/, return as is
+        if (str_starts_with($value, 'storage/')) {
+            return $value;
+        }
+        
+        return 'storage/' . $value;
     }
 
     /**
@@ -109,18 +118,18 @@ class Product extends Model
             return null;
         }
 
-        // Already a full URL
+        // Already a full URL - return as is
         if (str_starts_with($value, 'http')) {
             return $value;
         }
 
-        // Already starts with "storage/"
+        // Already starts with "storage/" - return as is
         if (str_starts_with($value, 'storage/')) {
-            return url($value);
+            return $value;
         }
 
-        // Default case
-        return url('storage/' . $value);
+        // Default case - return relative path
+        return 'storage/' . $value;
     }
 
     /**

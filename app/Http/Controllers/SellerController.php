@@ -67,13 +67,19 @@ class SellerController extends Controller
     public function index()
     {
         $sellers = Seller::with('user')->get();
-        return response()->json($sellers);
+        return response()->json([
+            'message' => 'Sellers fetched successfully',
+            'data' => $sellers
+        ]);
     }
 
     // ✅ Public: show specific seller
     public function show($id)
     {
         $seller = Seller::with('user', 'products')->findOrFail($id);
-        return response()->json($seller);
+        return response()->json([
+            'message' => 'Seller fetched successfully',
+            'data' => $seller
+        ]);
     }
 }

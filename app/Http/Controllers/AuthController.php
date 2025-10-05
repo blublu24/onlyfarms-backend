@@ -19,7 +19,10 @@ class AuthController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json($validator->errors(), 422);
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
         }
 
         // ✅ No need to set consumer_id manually
@@ -50,7 +53,10 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['message' => 'Invalid credentials'], 401);
+            return response()->json([
+                'message' => 'Invalid credentials',
+                'error' => 'Authentication failed'
+            ], 401);
         }
 
         $token = $user->createToken('onlyfarms_token')->plainTextToken;
