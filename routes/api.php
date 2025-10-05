@@ -180,4 +180,34 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/harvests/{harvest}/publish', [SellerHarvestController::class, 'publish']); // requires verification
 });
 
+/*
+|--------------------------------------------------------------------------
+| Admin Routes (require admin middleware)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+    // Admin Harvest Management
+    Route::get('/admin/harvests', [AdminHarvestController::class, 'index']);
+    Route::get('/admin/harvests/{harvest}', [AdminHarvestController::class, 'show']);
+    Route::post('/admin/harvests/{harvest}/verify', [AdminHarvestController::class, 'verify']);
+    Route::post('/admin/harvests/{harvest}/publish', [AdminHarvestController::class, 'publish']);
+    
+    // Admin Product Management
+    Route::get('/admin/products/{product}', [AdminProductController::class, 'show']);
+    Route::put('/admin/products/{product}', [AdminProductController::class, 'update']);
+    
+    // Admin Product Verification
+    Route::get('/admin/product-verifications', [AdminProductVerificationController::class, 'index']);
+    Route::get('/admin/product-verifications/{product}', [AdminProductVerificationController::class, 'show']);
+    Route::post('/admin/product-verifications/{product}/approve', [AdminProductVerificationController::class, 'approve']);
+    Route::post('/admin/product-verifications/{product}/reject', [AdminProductVerificationController::class, 'reject']);
+    Route::get('/admin/product-verifications-stats', [AdminProductVerificationController::class, 'stats']);
+    
+    // Admin User Management
+    Route::get('/admin/users', [AdminUserController::class, 'index']);
+    Route::get('/admin/users/{user}', [AdminUserController::class, 'show']);
+    Route::put('/admin/users/{user}', [AdminUserController::class, 'update']);
+    Route::delete('/admin/users/{user}', [AdminUserController::class, 'destroy']);
+});
+
 

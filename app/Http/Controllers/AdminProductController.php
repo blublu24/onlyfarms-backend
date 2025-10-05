@@ -19,6 +19,18 @@ class AdminProductController extends Controller
             return response()->json(['message' => 'Product not found'], 404);
         }
 
+        $imageUrl = $product->image_url; // Use model accessor
+        
+        // Construct full URL for frontend
+        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+            $baseUrl = request()->getSchemeAndHttpHost();
+            $imageUrl = $baseUrl . '/' . $imageUrl;
+        }
+        
+        $product->image_url = $imageUrl; // Set full URL
+        $product->full_image_url = $imageUrl;
+        $product->fixed_image_url = $imageUrl;
+
         return response()->json($product);
     }
 
@@ -68,6 +80,19 @@ class AdminProductController extends Controller
         }
 
         $product->save();
+
+        // Construct full URL for response
+        $imageUrl = $product->image_url; // Use model accessor
+        
+        // Construct full URL for frontend
+        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+            $baseUrl = request()->getSchemeAndHttpHost();
+            $imageUrl = $baseUrl . '/' . $imageUrl;
+        }
+        
+        $product->image_url = $imageUrl; // Set full URL
+        $product->full_image_url = $imageUrl;
+        $product->fixed_image_url = $imageUrl;
 
         return response()->json([
             'message' => 'Product updated successfully',

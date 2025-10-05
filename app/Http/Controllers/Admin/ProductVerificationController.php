@@ -24,7 +24,28 @@ class ProductVerificationController extends Controller
             $query->where('status', 'pending');
         }
 
-        $products = $query->orderBy('created_at', 'desc')->get();
+        $products = $query->orderBy('created_at', 'desc')->get()->map(function ($product) {
+            $imageUrl = $product->image_url; // This will use the model accessor
+            
+            // Construct full URL for frontend
+            if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+                $baseUrl = request()->getSchemeAndHttpHost();
+                $imageUrl = $baseUrl . '/' . $imageUrl;
+            }
+            
+            return [
+                'product_id' => $product->product_id,
+                'product_name' => $product->product_name,
+                'description' => $product->description,
+                'price' => $product->price,
+                'image_url' => $imageUrl, // Full URL
+                'status' => $product->status,
+                'created_at' => $product->created_at,
+                'approved_at' => $product->approved_at,
+                'approved_by' => $product->approved_by,
+                'user' => $product->user,
+            ];
+        });
 
         return response()->json($products);
     }
@@ -34,7 +55,27 @@ class ProductVerificationController extends Controller
      */
     public function show(Request $request, Product $product)
     {
-        return response()->json($product->load(['user']));
+        $productData = $product->load(['user']);
+        $imageUrl = $productData->image_url; // This will use the model accessor
+        
+        // Construct full URL for frontend
+        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+            $baseUrl = request()->getSchemeAndHttpHost();
+            $imageUrl = $baseUrl . '/' . $imageUrl;
+        }
+        
+        return response()->json([
+            'product_id' => $productData->product_id,
+            'product_name' => $productData->product_name,
+            'description' => $productData->description,
+            'price' => $productData->price,
+            'image_url' => $imageUrl, // Full URL
+            'status' => $productData->status,
+            'created_at' => $productData->created_at,
+            'approved_at' => $productData->approved_at,
+            'approved_by' => $productData->approved_by,
+            'user' => $productData->user,
+        ]);
     }
 
     /**
@@ -54,7 +95,19 @@ class ProductVerificationController extends Controller
             'approved_by' => $actor->id,
         ]);
 
-        return response()->json($product->load(['user']));
+        $productData = $product->load(['user']);
+        return response()->json([
+            'product_id' => $productData->product_id,
+            'product_name' => $productData->product_name,
+            'description' => $productData->description,
+            'price' => $productData->price,
+            'image_url' => $productData->image_url, // This will use the model accessor
+            'status' => $productData->status,
+            'created_at' => $productData->created_at,
+            'approved_at' => $productData->approved_at,
+            'approved_by' => $productData->approved_by,
+            'user' => $productData->user,
+        ]);
     }
 
     /**
@@ -74,7 +127,19 @@ class ProductVerificationController extends Controller
             'approved_by' => $actor->id,
         ]);
 
-        return response()->json($product->load(['user']));
+        $productData = $product->load(['user']);
+        return response()->json([
+            'product_id' => $productData->product_id,
+            'product_name' => $productData->product_name,
+            'description' => $productData->description,
+            'price' => $productData->price,
+            'image_url' => $productData->image_url, // This will use the model accessor
+            'status' => $productData->status,
+            'created_at' => $productData->created_at,
+            'approved_at' => $productData->approved_at,
+            'approved_by' => $productData->approved_by,
+            'user' => $productData->user,
+        ]);
     }
 
     /**

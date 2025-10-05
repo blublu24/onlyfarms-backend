@@ -16,8 +16,11 @@ class ProductController extends Controller
     {
         $query = Product::with('seller'); // Eager-load seller
 
-        // Only show approved products on homepage
-        $query->where('status', 'approved');
+        // Only show approved products on homepage (or products without status for backward compatibility)
+        $query->where(function($q) {
+            $q->where('status', 'approved')
+              ->orWhereNull('status'); // Show products without status for backward compatibility
+        });
 
         if ($request->has('category')) {
             $query->where('category', $request->category);
@@ -31,16 +34,23 @@ class ProductController extends Controller
             // ✅ Get the image URL from the model (which handles storage/ prefix)
             $imageUrl = $p->image_url;
             
+            // Construct full URL for frontend
+            if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+                $baseUrl = request()->getSchemeAndHttpHost();
+                $imageUrl = $baseUrl . '/' . $imageUrl;
+            }
+            
             return [
                 'product_id' => $p->product_id,
                 'product_name' => $p->product_name,
-                'image_url' => $imageUrl, // ✅ Use model accessor
-                'fixed_image_url' => $imageUrl, // ✅ Use model accessor
+                'image_url' => $imageUrl, // ✅ Full URL
+                'fixed_image_url' => $imageUrl, // ✅ Full URL
                 'price' => $p->price,
                 'description' => $p->description,
                 'category' => $p->category,
                 'seller_name' => $p->seller?->shop_name ?? 'Unknown Seller', // ✅ shop_name from sellers table
                 'seller_id' => $p->seller_id,
+                'updated_at' => $p->updated_at, // Add for cache busting
             ];
         });
 
@@ -57,6 +67,13 @@ class ProductController extends Controller
     {
         $product = Product::with('user')->findOrFail($id);
         $imageUrl = $product->image_url; // ✅ Use model accessor
+        
+        // Construct full URL for frontend
+        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+            $baseUrl = request()->getSchemeAndHttpHost();
+            $imageUrl = $baseUrl . '/' . $imageUrl;
+        }
+        
         $product->full_image_url = $imageUrl;
         $product->fixed_image_url = $imageUrl;
 
@@ -95,6 +112,13 @@ class ProductController extends Controller
 
         $product = Product::create($validated);
         $imageUrl = $product->image_url; // ✅ Use model accessor
+        
+        // Construct full URL for frontend
+        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+            $baseUrl = request()->getSchemeAndHttpHost();
+            $imageUrl = $baseUrl . '/' . $imageUrl;
+        }
+        
         $product->full_image_url = $imageUrl;
         $product->fixed_image_url = $imageUrl;
 
@@ -143,6 +167,13 @@ class ProductController extends Controller
 
         $product->update($validated);
         $imageUrl = $product->image_url; // ✅ Use model accessor
+        
+        // Construct full URL for frontend
+        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+            $baseUrl = request()->getSchemeAndHttpHost();
+            $imageUrl = $baseUrl . '/' . $imageUrl;
+        }
+        
         $product->full_image_url = $imageUrl;
         $product->fixed_image_url = $imageUrl;
 
@@ -188,6 +219,13 @@ class ProductController extends Controller
 
         $products = Product::where('seller_id', $user->id)->get()->map(function ($p) {
             $imageUrl = $p->image_url; // ✅ Use model accessor
+            
+            // Construct full URL for frontend
+            if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
+                $baseUrl = request()->getSchemeAndHttpHost();
+                $imageUrl = $baseUrl . '/' . $imageUrl;
+            }
+            
             $p->full_image_url = $imageUrl;
             $p->fixed_image_url = $imageUrl;
             return $p;
