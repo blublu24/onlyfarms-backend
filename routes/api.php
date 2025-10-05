@@ -15,6 +15,9 @@ use App\Http\Controllers\AdminAuthController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\CropScheduleController;
 use App\Http\Controllers\PreorderController;
+use App\Http\Controllers\AdminProductController;
+use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
+use App\Http\Controllers\ChatController;
 
 /*
 |--------------------------------------------------------------------------
@@ -54,11 +57,24 @@ Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id"
 */
 Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
     // Admin CRUD for users
+    Route::put('/users/{userId}/products/{productId}', [AdminUserController::class, 'updateProduct']);
+    Route::get('/users/{id}/products', [AdminUserController::class, 'products']);
     Route::get('/users', [AdminUserController::class, 'index']);
     Route::get('/users/{id}', [AdminUserController::class, 'show']);
     Route::post('/users', [AdminUserController::class, 'store']);
     Route::put('/users/{id}', [AdminUserController::class, 'update']);
     Route::delete('/users/{id}', [AdminUserController::class, 'destroy']);
+    Route::get('/users/{id}/orders', [AdminUserController::class, 'userOrders']); // ✅ NEW
+
+    // ✅ Admin CRUD for products
+    // Note: Route group already prefixed with /admin
+    Route::get('/products/{id}', [AdminProductController::class, 'show']);
+    Route::post('/products/{id}', [AdminProductController::class, 'update']); // with _method=PUT
+    Route::put('/products/{id}', [AdminProductController::class, 'update']);
+    Route::delete('/products/{id}', [AdminProductController::class, 'destroy']);
+
+    // ✅ New: Fetch all products of a specific seller (for admin-user-products)
+    Route::get('/users/{sellerId}/products-list', [MainProductController::class, 'getUserProducts']);
 });
 
 
@@ -124,4 +140,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // ✅ Preorders (protected)
     Route::get('/preorders', [PreorderController::class, 'index']);
     Route::post('/preorders', [PreorderController::class, 'store']);
+
+    //Messaging (Chat)
+    Route::post('/conversations', [ChatController::class, 'createConversation']);
+    Route::post('/conversations/{id}/messages', [ChatController::class, 'sendMessage']);
+    Route::get('/conversations', [ChatController::class, 'listConversations']);
+    Route::get('/conversations/{id}/messages', [ChatController::class, 'listMessages']);
+    Route::get('/conversations/{id}/listen', [ChatController::class, 'listen']);
+    Route::post('/conversations/{id}/mark-read', [ChatController::class, 'markAsRead']);
 });
+
+

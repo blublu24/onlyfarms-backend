@@ -12,15 +12,22 @@ class CropScheduleController extends Controller
     /**
      * Display a listing of crop schedules.
      * - Sellers: only their own schedules
+     * - Admins: can view all schedules
      */
     public function index(Request $request)
     {
         $user = $request->user();
 
         if ($user->is_seller) {
-            // Join with seller_id from sellers table to ensure valid relation
+            // Sellers can only view their own crop schedules
             return CropSchedule::where('seller_id', $user->id)
                 ->with('product')
+                ->get();
+        }
+
+        // Admins can view all crop schedules
+        if ($user->is_admin) {
+            return CropSchedule::with('product', 'seller')
                 ->get();
         }
 
@@ -28,7 +35,7 @@ class CropScheduleController extends Controller
     }
 
     /**
-     * Store a new crop schedule
+     * Store a new crop schedule.
      */
     public function store(Request $request)
     {
@@ -52,6 +59,7 @@ class CropScheduleController extends Controller
             'expected_harvest_end' => 'required|date|after_or_equal:expected_harvest_start',
             'quantity_estimate' => 'nullable|integer',
             'quantity_unit' => 'nullable|string',
+            'status' => 'required|in:Planted,Growing,Ready for Harvest,Harvested', // Added status validation
             'notes' => 'nullable|string',
         ]);
 
@@ -69,7 +77,7 @@ class CropScheduleController extends Controller
     }
 
     /**
-     * Update a crop schedule
+     * Update a crop schedule.
      */
     public function update(Request $request, CropSchedule $cropSchedule)
     {
@@ -89,6 +97,7 @@ class CropScheduleController extends Controller
             'expected_harvest_end' => 'nullable|date|after_or_equal:expected_harvest_start',
             'quantity_estimate' => 'nullable|integer',
             'quantity_unit' => 'nullable|string',
+            'status' => 'nullable|in:Planted,Growing,Ready for Harvest,Harvested', // Allow status update
             'is_active' => 'nullable|boolean',
             'notes' => 'nullable|string',
         ]);
@@ -105,12 +114,13 @@ class CropScheduleController extends Controller
     }
 
     /**
-     * Delete a crop schedule
+     * Delete a crop schedule.
      */
     public function destroy(Request $request, CropSchedule $cropSchedule)
     {
         $user = $request->user();
 
+        // Ensure the user owns this schedule
         $seller = Seller::where('user_id', $user->id)->first();
         if (!$seller || $cropSchedule->seller_id !== $seller->id) {
             return response()->json(['message' => 'Unauthorized'], 403);

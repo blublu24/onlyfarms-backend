@@ -50,13 +50,15 @@ class Product extends Model
     /* ==============================
      | Relationships
      ============================== */
+    // 👇 Automatically include in API response
+    protected $appends = ['fixed_image_url'];
 
     /**
      * A product belongs to a seller (User).
      */
     public function user()
     {
-        return $this->belongsTo(User::class, 'seller_id', 'id');
+        return $this->belongsTo(User::class, 'seller_id');
     }
 
     /**
@@ -97,6 +99,32 @@ class Product extends Model
 
     /**
      * Helper: Recalculate average rating & ratings count.
+     * New Accessor: Fix duplicate "storage/storage" issues
+     */
+    public function getFixedImageUrlAttribute()
+    {
+        $value = $this->attributes['image_url'] ?? null;
+
+        if (!$value) {
+            return null;
+        }
+
+        // Already a full URL
+        if (str_starts_with($value, 'http')) {
+            return $value;
+        }
+
+        // Already starts with "storage/"
+        if (str_starts_with($value, 'storage/')) {
+            return url($value);
+        }
+
+        // Default case
+        return url('storage/' . $value);
+    }
+
+    /**
+     * Helper: Recalculate avg_rating & ratings_count based on reviews
      */
     public function updateRatingStats()
     {
@@ -123,5 +151,15 @@ class Product extends Model
                         ->first();
 
         return $nearest ? $nearest->expected_harvest_start : null; // null means TBD
+    }
+
+    public function seller()
+    {
+        return $this->hasOne(\App\Models\Seller::class, 'user_id', 'seller_id');
+    }
+
+    public function conversations()
+    {
+        return $this->hasMany(Conversation::class, 'product_id');
     }
 }
