@@ -34,6 +34,11 @@ class Product extends Model
         'manual_availability_date',
         'accept_preorders',
         'max_preorder_quantity',
+
+        // Admin verification
+        'status',         // pending, approved, rejected
+        'approved_at',    // when approved
+        'approved_by',    // admin who approved
     ];
 
     /**

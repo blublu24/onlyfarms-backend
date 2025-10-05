@@ -12,8 +12,8 @@ class AdminMiddleware
     {
         $user = $request->user(); // Sanctum authenticated user
 
-        // Check if user exists and is listed in the admins table
-        if (!$user || !Admin::where('email', $user->email)->exists()) {
+        // Check if user exists and is an Admin instance
+        if (!$user || !($user instanceof Admin)) {
             return response()->json(['message' => 'Unauthorized: Admins only'], 403);
         }
 

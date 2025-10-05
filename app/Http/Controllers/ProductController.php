@@ -16,6 +16,9 @@ class ProductController extends Controller
     {
         $query = Product::with('seller'); // Eager-load seller
 
+        // Only show approved products on homepage
+        $query->where('status', 'approved');
+
         if ($request->has('category')) {
             $query->where('category', $request->category);
         }

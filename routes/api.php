@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
@@ -18,6 +19,11 @@ use App\Http\Controllers\PreorderController;
 use App\Http\Controllers\AdminProductController;
 use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
 use App\Http\Controllers\ChatController;
+
+// NEW: harvest controllers
+use App\Http\Controllers\Seller\HarvestController as SellerHarvestController;
+use App\Http\Controllers\Admin\HarvestController as AdminHarvestController;
+use App\Http\Controllers\Admin\ProductVerificationController as AdminProductVerificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -52,10 +58,10 @@ Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id"
 
 /*
 |--------------------------------------------------------------------------
-| Admin-Protected Routes (require Sanctum)
+| Admin-Protected Routes (require Sanctum + admin middleware)
 |--------------------------------------------------------------------------
 */
-Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
+Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
     // Admin CRUD for users
     Route::put('/users/{userId}/products/{productId}', [AdminUserController::class, 'updateProduct']);
     Route::get('/users/{id}/products', [AdminUserController::class, 'products']);
@@ -75,6 +81,22 @@ Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
 
     // ✅ New: Fetch all products of a specific seller (for admin-user-products)
     Route::get('/users/{sellerId}/products-list', [MainProductController::class, 'getUserProducts']);
+
+    // ✅ Admin Harvest management
+    Route::get('/harvests', [AdminHarvestController::class, 'index']);
+    Route::get('/harvests/{harvest}', [AdminHarvestController::class, 'show']);
+    Route::post('/crop-schedules/{cropSchedule}/harvest', [AdminHarvestController::class, 'storeForSchedule']);
+    Route::put('/harvests/{harvest}', [AdminHarvestController::class, 'update']);
+    Route::delete('/harvests/{harvest}', [AdminHarvestController::class, 'destroy']);
+    Route::post('/harvests/{harvest}/verify', [AdminHarvestController::class, 'verify']);
+    Route::post('/harvests/{harvest}/publish', [AdminHarvestController::class, 'publish']);
+
+    // ✅ Admin Product Verification management
+    Route::get('/product-verifications', [AdminProductVerificationController::class, 'index']);
+    Route::get('/product-verifications/{product}', [AdminProductVerificationController::class, 'show']);
+    Route::post('/product-verifications/{product}/approve', [AdminProductVerificationController::class, 'approve']);
+    Route::post('/product-verifications/{product}/reject', [AdminProductVerificationController::class, 'reject']);
+    Route::get('/product-verifications-stats', [AdminProductVerificationController::class, 'stats']);
 });
 
 
@@ -134,7 +156,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/reviews/{id}', [ReviewController::class, 'destroy']);
     Route::get('/orders/{order}/reviewable-items', [ReviewController::class, 'reviewableItems']);
 
-    // Crop Schedules
+    // Crop Schedules (seller/admin blended via controller logic)
     Route::apiResource('crop-schedules', CropScheduleController::class);
 
     // ✅ Preorders (protected)
@@ -148,6 +170,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/conversations/{id}/messages', [ChatController::class, 'listMessages']);
     Route::get('/conversations/{id}/listen', [ChatController::class, 'listen']);
     Route::post('/conversations/{id}/mark-read', [ChatController::class, 'markAsRead']);
+
+    // ✅ Seller Harvest endpoints
+    Route::post('/crop-schedules/{cropSchedule}/harvest', [SellerHarvestController::class, 'storeForSchedule']);
+    Route::get('/harvests', [SellerHarvestController::class, 'index']);
+    Route::get('/harvests/{harvest}', [SellerHarvestController::class, 'show']);
+    Route::put('/harvests/{harvest}', [SellerHarvestController::class, 'update']);
+    Route::delete('/harvests/{harvest}', [SellerHarvestController::class, 'destroy']);
+    Route::post('/harvests/{harvest}/publish', [SellerHarvestController::class, 'publish']); // requires verification
 });
 
 

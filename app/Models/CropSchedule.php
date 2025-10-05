@@ -12,19 +12,26 @@ class CropSchedule extends Model
     protected $fillable = [
         'seller_id',
         'product_id',
-        'crop_name',              // Added to auto-fill the crop name
+        'crop_name',
         'planting_date',
         'expected_harvest_start',
         'expected_harvest_end',
         'quantity_estimate',
         'quantity_unit',
-        'status',                 // Added for status tracking (Planted, Growing, Ready for Harvest, Harvested)
+        'status',        // Planted, Growing, Ready for Harvest, Harvested
         'is_active',
         'notes',
     ];
 
+    protected $casts = [
+        'planting_date' => 'date',
+        'expected_harvest_start' => 'date',
+        'expected_harvest_end' => 'date',
+        'is_active' => 'boolean',
+    ];
+
     /**
-     * A crop schedule belongs to a product.
+     * A crop schedule belongs to a product (custom PK: product_id).
      */
     public function product()
     {
@@ -32,10 +39,11 @@ class CropSchedule extends Model
     }
 
     /**
-     * A crop schedule belongs to a seller (User).
+     * A crop schedule belongs to a seller record.
+     * NOTE: This references the Seller model (id), not User.
      */
     public function seller()
     {
-        return $this->belongsTo(User::class, 'seller_id', 'id');
+        return $this->belongsTo(Seller::class, 'seller_id', 'id');
     }
 }
