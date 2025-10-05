@@ -14,6 +14,7 @@ use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\AdminAuthController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\CropScheduleController;
+use App\Http\Controllers\PreorderController;
 
 /*
 |--------------------------------------------------------------------------
@@ -119,4 +120,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Crop Schedules
     Route::apiResource('crop-schedules', CropScheduleController::class);
+
+    // ✅ Preorders (protected)
+    Route::get('/preorders', [PreorderController::class, 'index']);
+    Route::post('/preorders', [PreorderController::class, 'store']);
 });
