@@ -17,6 +17,9 @@ class User extends Authenticatable
         'password',
         'is_seller',
         'consumer_id', // ✅ auto-generated
+        'phone_number',
+        'address',
+        'profile_image',
     ];
 
     protected $hidden = [

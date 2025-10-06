@@ -118,6 +118,12 @@ class HarvestController extends Controller
      */
     public function publish(Request $request, Harvest $harvest)
     {
+        $actor = $request->user();
+
+        if (!($actor instanceof Admin)) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         $validated = $request->validate([
             'product_id' => 'required|exists:products,product_id',
         ]);

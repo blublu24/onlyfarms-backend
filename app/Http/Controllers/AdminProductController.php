@@ -45,24 +45,26 @@ class AdminProductController extends Controller
             return response()->json(['message' => 'Product not found'], 404);
         }
 
-        // ✅ Validate only the fields provided
-        $request->validate([
-            'product_name' => 'sometimes|required|string|max:255',
-            'description'  => 'sometimes|nullable|string',
-            'price'        => 'sometimes|required|numeric|min:0',
-            'category'     => 'sometimes|nullable|string|max:100',
-            'unit'         => 'sometimes|nullable|string|max:50',
-            'image_url'    => 'sometimes|nullable|file|image|max:2048',
+        // ✅ Validate only the fields provided (matching ProductController)
+        $validated = $request->validate([
+            'product_name' => 'sometimes|string|max:255',
+            'description' => 'nullable|string',
+            'category' => 'nullable|string|max:255',
+            'price_kg' => 'nullable|numeric|min:0',
+            'price_bunches' => 'nullable|numeric|min:0',
+            'stocks' => 'sometimes|numeric|min:0',
+            'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
 
-        // Update fields dynamically
-        foreach (['product_name', 'description', 'price', 'category', 'unit'] as $field) {
-            if ($request->has($field)) {
-                $product->$field = $request->$field;
-            }
+        // Ensure at least one price is provided
+        $hasPrice = (!empty($validated['price_kg']) && $validated['price_kg'] > 0) ||
+                    (!empty($validated['price_bunches']) && $validated['price_bunches'] > 0);
+        
+        if (!$hasPrice) {
+            return response()->json(['error' => 'At least one price (price_kg or price_bunches) must be provided and greater than 0'], 422);
         }
 
-        // Handle image upload
+        // Handle image upload first
         if ($request->hasFile('image_url')) {
             // Delete old image if exists
             if ($product->image_url && Storage::disk('public')->exists($product->image_url)) {
@@ -71,26 +73,27 @@ class AdminProductController extends Controller
 
             $path = $request->file('image_url')->store('products', 'public');
             $product->image_url = $path; // ✅ store only relative path
-        } elseif ($request->has('image_url') && $request->image_url === "") {
-            // If explicitly cleared
-            if ($product->image_url && Storage::disk('public')->exists($product->image_url)) {
-                Storage::disk('public')->delete($product->image_url);
+        }
+
+        // Update fields dynamically
+        foreach (['product_name', 'description', 'category', 'price_kg', 'price_bunches', 'stocks'] as $field) {
+            if ($request->has($field)) {
+                $product->$field = $request->$field;
             }
-            $product->image_url = null;
         }
 
         $product->save();
+        $product->refresh(); // Get latest timestamps
 
         // Construct full URL for response
-        $imageUrl = $product->image_url; // Use model accessor
+        $imageUrl = $product->image_url;
         
-        // Construct full URL for frontend
         if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
             $baseUrl = request()->getSchemeAndHttpHost();
             $imageUrl = $baseUrl . '/' . $imageUrl;
         }
         
-        $product->image_url = $imageUrl; // Set full URL
+        $product->image_url = $imageUrl;
         $product->full_image_url = $imageUrl;
         $product->fixed_image_url = $imageUrl;
 

@@ -78,6 +78,7 @@ class OrderController extends Controller
                 $total = 0.0;
                 $lineItems = [];
 
+                // First pass: Validate stock availability
                 foreach ($data['items'] as $row) {
                     $product = $products[$row['product_id']] ?? null;
                     if (!$product)
@@ -85,6 +86,20 @@ class OrderController extends Controller
 
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
+                    
+                    // Check stock availability
+                    $currentStock = (float) $product->stocks;
+                    if ($currentStock < $qty) {
+                        abort(422, "Insufficient stock for product '{$product->product_name}'. Available: {$currentStock}kg, Requested: {$qty}kg");
+                    }
+                }
+
+                // Second pass: Calculate totals and prepare line items
+                foreach ($data['items'] as $row) {
+                    $product = $products[$row['product_id']] ?? null;
+                    $qty = (int) $row['quantity'];
+                    $unit = $row['unit'];
+                    
                     // Determine price based on unit
                     $unitPrice = 0;
                     if ($unit === 'kg' && $product->price_kg) {
@@ -112,6 +127,14 @@ class OrderController extends Controller
                         'unit' => $unit,
                         'image_url' => $fullImage,
                     ];
+
+                    // Debug logging for seller_id
+                    Log::info('Order item created', [
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'seller_id' => $product->seller_id,
+                        'buyer_id' => $user->id
+                    ]);
                 }
 
                 $orderData = [
@@ -130,6 +153,24 @@ class OrderController extends Controller
 
                 foreach ($lineItems as $li) {
                     $order->items()->create($li);
+                }
+
+                // Decrement stock for each product
+                foreach ($data['items'] as $row) {
+                    $product = $products[$row['product_id']];
+                    $qty = (int) $row['quantity'];
+                    
+                    // Decrement stock
+                    $newStock = max(0, (float) $product->stocks - $qty);
+                    $product->update(['stocks' => $newStock]);
+                    
+                    Log::info('Stock decremented', [
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'old_stock' => $product->stocks + $qty,
+                        'new_stock' => $newStock,
+                        'quantity_ordered' => $qty
+                    ]);
                 }
 
                 // PayMongo checkout integration
@@ -283,6 +324,52 @@ class OrderController extends Controller
         }
 
         return response()->json(['received' => true]);
+    }
+
+    /**
+     * Handle payment failure and restore stock
+     */
+    public function handlePaymentFailure($orderId)
+    {
+        $order = Order::find($orderId);
+        if ($order && $order->status !== 'cancelled') {
+            $order->status = 'cancelled';
+            $order->payment_status = 'failed';
+            $order->save();
+
+            // Restore stock for failed payment
+            $this->restoreStockForOrder($order);
+            
+            Log::info('Order cancelled due to payment failure', [
+                'order_id' => $orderId,
+                'stock_restored' => true
+            ]);
+        }
+    }
+
+    /**
+     * Restore stock for cancelled orders
+     */
+    private function restoreStockForOrder(Order $order)
+    {
+        foreach ($order->items as $item) {
+            $product = Product::find($item->product_id);
+            if ($product) {
+                $currentStock = (float) $product->stocks;
+                $newStock = $currentStock + $item->quantity;
+                
+                $product->update(['stocks' => $newStock]);
+                
+                Log::info('Stock restored for cancelled order', [
+                    'order_id' => $order->id,
+                    'product_id' => $product->product_id,
+                    'product_name' => $product->product_name,
+                    'old_stock' => $currentStock,
+                    'new_stock' => $newStock,
+                    'quantity_restored' => $item->quantity
+                ]);
+            }
+        }
     }
 
 

@@ -109,6 +109,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/user/profile', [AuthController::class, 'updateProfile']);
 
     // Seller account
     Route::post('/seller/become', [SellerController::class, 'becomeSeller']);
@@ -140,6 +141,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/{id}/pay', [OrderController::class, 'generatePaymentLink']);
     Route::post('/orders/{id}/payment-status', [OrderController::class, 'updatePaymentStatus']);
     Route::post('/orders/{id}/cod-delivered', [OrderController::class, 'markCODDelivered']);
+    Route::post('/orders/{id}/payment-failure', [OrderController::class, 'handlePaymentFailure']);
 
     // Dashboard
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);

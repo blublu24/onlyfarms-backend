@@ -77,4 +77,47 @@ class AuthController extends Controller
             'message' => 'Logged out successfully'
         ]);
     }
+
+    // UPDATE USER PROFILE
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|unique:users,email,' . $user->id,
+            'phone_number' => 'nullable|string|max:20',
+            'address' => 'nullable|string|max:500',
+            'profile_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $updateData = [
+            'name' => $request->name,
+            'email' => $request->email,
+            'phone_number' => $request->phone_number,
+            'address' => $request->address,
+        ];
+
+        // Handle profile image upload
+        if ($request->hasFile('profile_image')) {
+            $image = $request->file('profile_image');
+            $imageName = time() . '_' . $user->id . '.' . $image->getClientOriginalExtension();
+            $image->move(public_path('uploads/profiles'), $imageName);
+            $updateData['profile_image'] = 'uploads/profiles/' . $imageName;
+        }
+
+        $user->update($updateData);
+
+        return response()->json([
+            'message' => 'Profile updated successfully!',
+            'user' => $user->fresh()
+        ]);
+    }
 }
