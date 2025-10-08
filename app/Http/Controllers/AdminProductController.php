@@ -1,4 +1,11 @@
 <?php
+/**
+ * AdminProductController.php
+ *
+ * Author: Arsalan Sheikh
+ * @date: 2025-10-08
+ * @description: Controller for managing products in the admin panel
+ */
 
 namespace App\Http\Controllers;
 
