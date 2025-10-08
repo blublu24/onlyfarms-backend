@@ -73,12 +73,17 @@ class OrderController extends Controller
 
             return DB::transaction(function () use ($data, $user, $deliveryAddress) {
                 $productIds = collect($data['items'])->pluck('product_id')->all();
-                $products = Product::whereIn('product_id', $productIds)->get()->keyBy('product_id');
+                
+                // 🔒 CRITICAL: Lock products for update to prevent race conditions
+                $products = Product::whereIn('product_id', $productIds)
+                    ->lockForUpdate()
+                    ->get()
+                    ->keyBy('product_id');
 
                 $total = 0.0;
                 $lineItems = [];
 
-                // First pass: Validate stock availability
+                // First pass: Validate stock availability with locked products
                 foreach ($data['items'] as $row) {
                     $product = $products[$row['product_id']] ?? null;
                     if (!$product)
@@ -87,7 +92,7 @@ class OrderController extends Controller
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
                     
-                    // Check stock availability
+                    // Check stock availability with fresh locked data
                     $currentStock = (float) $product->stocks;
                     if ($currentStock < $qty) {
                         abort(422, "Insufficient stock for product '{$product->product_name}'. Available: {$currentStock}kg, Requested: {$qty}kg");
@@ -155,21 +160,32 @@ class OrderController extends Controller
                     $order->items()->create($li);
                 }
 
-                // Decrement stock for each product
+                // 🔒 ATOMIC: Decrement stock for each product using atomic operations
                 foreach ($data['items'] as $row) {
                     $product = $products[$row['product_id']];
                     $qty = (int) $row['quantity'];
                     
-                    // Decrement stock
-                    $newStock = max(0, (float) $product->stocks - $qty);
-                    $product->update(['stocks' => $newStock]);
+                    // Use atomic decrement to prevent race conditions
+                    $oldStock = (float) $product->stocks;
+                    $newStock = max(0, $oldStock - $qty);
                     
-                    Log::info('Stock decremented', [
+                    // Atomic update with stock validation
+                    $updated = Product::where('product_id', $product->product_id)
+                        ->where('stocks', '>=', $qty) // Double-check stock is still sufficient
+                        ->update(['stocks' => $newStock]);
+                    
+                    if (!$updated) {
+                        // Stock was insufficient - this should not happen due to locks, but safety check
+                        throw new \Exception("Stock became insufficient during order processing for product {$product->product_name}");
+                    }
+                    
+                    Log::info('Stock decremented atomically', [
                         'product_id' => $product->product_id,
                         'product_name' => $product->product_name,
-                        'old_stock' => $product->stocks + $qty,
+                        'old_stock' => $oldStock,
                         'new_stock' => $newStock,
-                        'quantity_ordered' => $qty
+                        'quantity_ordered' => $qty,
+                        'order_id' => $order->id
                     ]);
                 }
 
@@ -288,7 +304,18 @@ class OrderController extends Controller
     public function handleWebhook(Request $request)
     {
         $payload = $request->all();
+        $signature = $request->header('PayMongo-Signature');
+        
         \Log::info('Raw PayMongo payload:', $payload);
+
+        // 🔒 SECURITY: Verify webhook signature
+        if (!$this->verifyWebhookSignature($signature, $request->getContent())) {
+            \Log::warning('Invalid webhook signature', [
+                'signature' => $signature,
+                'ip' => $request->ip()
+            ]);
+            return response()->json(['error' => 'Invalid signature'], 400);
+        }
 
         // Navigate the JSON exactly
         $eventData = $payload['data']['attributes'] ?? null;
@@ -303,11 +330,19 @@ class OrderController extends Controller
             if ($status === 'paid' && $orderId) {
                 $order = \App\Models\Order::find($orderId);
                 if ($order) {
-                    $order->status = 'completed';
-                    $order->payment_status = 'paid';
-                    $order->save();
+                    // 🔒 SECURITY: Additional validation
+                    if ($order->payment_status === 'pending') {
+                        $order->status = 'completed';
+                        $order->payment_status = 'paid';
+                        $order->save();
 
-                    \Log::info("Order {$orderId} updated to paid/completed");
+                        \Log::info("Order {$orderId} updated to paid/completed");
+                    } else {
+                        \Log::warning("Order {$orderId} already processed", [
+                            'current_status' => $order->status,
+                            'payment_status' => $order->payment_status
+                        ]);
+                    }
                 } else {
                     \Log::warning("Order {$orderId} not found");
                 }
@@ -324,6 +359,51 @@ class OrderController extends Controller
         }
 
         return response()->json(['received' => true]);
+    }
+
+    /**
+     * Verify PayMongo webhook signature
+     */
+    private function verifyWebhookSignature($signature, $payload)
+    {
+        if (!$signature) {
+            return false;
+        }
+
+        $webhookSecret = env('PAYMONGO_WEBHOOK_SECRET');
+        if (!$webhookSecret) {
+            \Log::warning('PayMongo webhook secret not configured');
+            return false;
+        }
+
+        // Parse signature header (format: t=timestamp,v1=signature)
+        $signatureData = [];
+        foreach (explode(',', $signature) as $pair) {
+            list($key, $value) = explode('=', $pair, 2);
+            $signatureData[$key] = $value;
+        }
+
+        $timestamp = $signatureData['t'] ?? null;
+        $signatureHash = $signatureData['v1'] ?? null;
+
+        if (!$timestamp || !$signatureHash) {
+            return false;
+        }
+
+        // Check timestamp (prevent replay attacks)
+        $currentTime = time();
+        if (abs($currentTime - $timestamp) > 300) { // 5 minutes tolerance
+            \Log::warning('Webhook timestamp too old', [
+                'timestamp' => $timestamp,
+                'current_time' => $currentTime
+            ]);
+            return false;
+        }
+
+        // Verify signature
+        $expectedSignature = hash_hmac('sha256', $timestamp . $payload, $webhookSecret);
+        
+        return hash_equals($signatureHash, $expectedSignature);
     }
 
     /**

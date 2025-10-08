@@ -22,12 +22,66 @@ class ProductController extends Controller
               ->orWhereNull('status'); // Show products without status for backward compatibility
         });
 
-        if ($request->has('category')) {
+        // 🔍 NEW: Advanced filtering
+        if ($request->has('category') && $request->category) {
             $query->where('category', $request->category);
         }
 
-        if ($request->has('search')) {
+        if ($request->has('search') && $request->search) {
             $query->where('product_name', 'like', '%' . $request->search . '%');
+        }
+
+        // Price range filtering
+        if ($request->has('min_price') && $request->min_price) {
+            $query->where(function($q) use ($request) {
+                $q->where('price_kg', '>=', $request->min_price)
+                  ->orWhere('price_bunches', '>=', $request->min_price);
+            });
+        }
+
+        if ($request->has('max_price') && $request->max_price) {
+            $query->where(function($q) use ($request) {
+                $q->where('price_kg', '<=', $request->max_price)
+                  ->orWhere('price_bunches', '<=', $request->max_price);
+            });
+        }
+
+        // Rating filtering
+        if ($request->has('min_rating') && $request->min_rating) {
+            $query->where('avg_rating', '>=', $request->min_rating);
+        }
+
+        // Stock filtering
+        if ($request->has('in_stock_only') && $request->in_stock_only) {
+            $query->where('stocks', '>', 0);
+        }
+
+        // 🔍 NEW: Sorting
+        if ($request->has('sort_by') && $request->sort_by) {
+            switch ($request->sort_by) {
+                case 'newest':
+                    $query->orderBy('created_at', 'desc');
+                    break;
+                case 'oldest':
+                    $query->orderBy('created_at', 'asc');
+                    break;
+                case 'price_low':
+                    $query->orderByRaw('LEAST(COALESCE(price_kg, 999999), COALESCE(price_bunches, 999999)) ASC');
+                    break;
+                case 'price_high':
+                    $query->orderByRaw('GREATEST(COALESCE(price_kg, 0), COALESCE(price_bunches, 0)) DESC');
+                    break;
+                case 'rating':
+                    $query->orderBy('avg_rating', 'desc');
+                    break;
+                case 'name':
+                    $query->orderBy('product_name', 'asc');
+                    break;
+                default:
+                    $query->orderBy('created_at', 'desc');
+            }
+        } else {
+            $query->orderBy('created_at', 'desc'); // Default sorting
         }
 
         $products = $query->get()->map(function ($p) {
@@ -288,6 +342,7 @@ class ProductController extends Controller
             'data' => $products
         ]);
     }
+
 
     /**
      * 🔥 Admin: Get products by user (for admin-user-products page).

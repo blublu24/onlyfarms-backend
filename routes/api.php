@@ -34,9 +34,9 @@ use App\Http\Controllers\Admin\ProductVerificationController as AdminProductVeri
 // Admin Auth
 Route::post('/admin/login', [AdminAuthController::class, 'login']);
 
-// Auth
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
+// Auth with rate limiting
+Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);
@@ -105,7 +105,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function ()
 | Protected Routes (require Sanctum)
 |--------------------------------------------------------------------------
 */
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
 
     // Auth
     Route::post('/logout', [AuthController::class, 'logout']);
