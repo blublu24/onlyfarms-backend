@@ -44,4 +44,52 @@ class Order extends Model
     {
         return $this->hasMany(OrderItem::class, 'order_id', 'id');
     }
+
+    /**
+     * Check if order is awaiting seller verification
+     */
+    public function isAwaitingSellerVerification(): bool
+    {
+        return $this->status === 'for_seller_verification';
+    }
+
+    /**
+     * Check if order is awaiting buyer confirmation
+     */
+    public function isAwaitingBuyerConfirmation(): bool
+    {
+        return $this->status === 'awaiting_buyer_confirmation';
+    }
+
+    /**
+     * Get total estimated weight of all items
+     */
+    public function getTotalEstimatedWeight(): float
+    {
+        return $this->items()->sum('estimated_weight_kg');
+    }
+
+    /**
+     * Get total actual weight of all items
+     */
+    public function getTotalActualWeight(): float
+    {
+        return $this->items()->sum('actual_weight_kg');
+    }
+
+    /**
+     * Check if all items have been verified by seller
+     */
+    public function allItemsVerified(): bool
+    {
+        return $this->items()->where('seller_verification_status', 'pending')->count() === 0;
+    }
+
+    /**
+     * Check if any items were rejected by seller
+     */
+    public function hasRejectedItems(): bool
+    {
+        return $this->items()->where('seller_verification_status', 'seller_rejected')->exists();
+    }
 }

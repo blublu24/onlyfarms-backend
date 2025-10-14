@@ -19,6 +19,7 @@ use App\Http\Controllers\PreorderController;
 use App\Http\Controllers\AdminProductController;
 use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\UnitConversionController;
 
 // NEW: harvest controllers
 use App\Http\Controllers\Seller\HarvestController as SellerHarvestController;
@@ -47,6 +48,10 @@ Route::get('/sellers/{id}', [SellerController::class, 'show']);
 // Reviews
 Route::get('/products/{productId}/reviews', [ReviewController::class, 'index']);
 
+// Unit Conversions (public)
+Route::get('/unit-conversions/{vegetableSlug}', [UnitConversionController::class, 'getAvailableUnits']);
+Route::get('/unit-conversions', [UnitConversionController::class, 'index']);
+
 // PayMongo Webhook (public, no auth)
 Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
     ->withoutMiddleware(['auth:sanctum']);
@@ -55,13 +60,29 @@ Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
 Route::get('/payments/success/{id}', fn($id) => "Payment success for order $id");
 Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id");
 
+// Multi-unit order creation and seller verification routes
+Route::middleware(['auth:sanctum'])->group(function () {
+    // Create order with multi-unit support
+    Route::post('/orders', [OrderController::class, 'createOrder']);
+    
+    // Seller verification routes
+    Route::get('/seller/{sellerId}/orders/pending', [OrderController::class, 'getPendingOrders']);
+    Route::post('/orders/{orderId}/seller/verify', [OrderController::class, 'sellerVerify']);
+    
+    // Order cancellation
+    Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancelOrder']);
+    
+    // Buyer confirmation
+    Route::post('/orders/{orderId}/buyer/confirm', [OrderController::class, 'buyerConfirm']);
+});
+
 
 /*
 |--------------------------------------------------------------------------
 | Admin-Protected Routes (require Sanctum + admin middleware)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth:admin', 'admin'])->prefix('admin')->group(function () {
     // Admin CRUD for users
     Route::put('/users/{userId}/products/{productId}', [AdminUserController::class, 'updateProduct']);
     Route::get('/users/{id}/products', [AdminUserController::class, 'products']);
@@ -187,7 +208,7 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
 | Admin Routes (require admin middleware)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+Route::middleware(['auth:admin', 'admin'])->group(function () {
     // Admin Harvest Management
     Route::get('/admin/harvests', [AdminHarvestController::class, 'index']);
     Route::get('/admin/harvests/{harvest}', [AdminHarvestController::class, 'show']);

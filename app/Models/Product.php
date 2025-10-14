@@ -22,15 +22,23 @@ class Product extends Model
     protected $fillable = [
         'product_name',
         'description',
-        'price_kg',
-        'price_bunches',
-        'stocks',
         'image_url',
         'seller_id',
+
+        // Multi-unit support
+        'stock_kg',
+        'price_per_kg',
+        'available_units',
+        'pieces_per_bundle',
 
         // Ratings
         'avg_rating',
         'ratings_count',
+        'rating_weight',
+
+        // Analytics
+        'total_sold',
+        'relevance_score',
 
         // Preorders
         'manual_availability_date',
@@ -47,11 +55,14 @@ class Product extends Model
      * Attribute casting for database fields.
      */
     protected $casts = [
-        'price_kg' => 'decimal:2',
-        'price_bunches' => 'decimal:2',
-        'stocks' => 'decimal:2',
+        'stock_kg' => 'decimal:4',
+        'price_per_kg' => 'decimal:2',
+        'available_units' => 'array',
         'avg_rating' => 'decimal:2',
         'ratings_count' => 'integer',
+        'rating_weight' => 'decimal:4',
+        'total_sold' => 'integer',
+        'relevance_score' => 'decimal:4',
         'manual_availability_date' => 'date',
         'accept_preorders' => 'boolean',
     ];
@@ -142,12 +153,22 @@ class Product extends Model
     }
 
     /**
-     * Helper: Recalculate avg_rating & ratings_count based on reviews
+     * Helper: Recalculate avg_rating, ratings_count, and rating_weight based on reviews
      */
     public function updateRatingStats()
     {
-        $this->avg_rating = $this->reviews()->avg('rating') ?? 0;
-        $this->ratings_count = $this->reviews()->count();
+        $avgRating = $this->reviews()->avg('rating') ?? 0;
+        $ratingsCount = $this->reviews()->count();
+        
+        // Calculate weighted rating for relevance score
+        // Combines rating quality with review volume (trust factor)
+        $ratingQuality = $avgRating / 5.0; // Normalize to 0-1
+        $reviewTrust = log($ratingsCount + 1) / log(101); // Caps at ~100 reviews
+        $ratingWeight = ($ratingQuality * 0.7) + ($reviewTrust * 0.3);
+        
+        $this->avg_rating = $avgRating;
+        $this->ratings_count = $ratingsCount;
+        $this->rating_weight = $ratingWeight;
         $this->save();
     }
 
@@ -180,4 +201,144 @@ class Product extends Model
     {
         return $this->hasMany(Conversation::class, 'product_id');
     }
+
+    /**
+     * Get available units for this product based on vegetable type
+     */
+    public function getAvailableUnitsAttribute($value)
+    {
+        if ($value) {
+            return is_string($value) ? json_decode($value, true) : $value;
+        }
+        
+        // Fallback to default units if not set
+        return ['kg', 'sack', 'small_sack'];
+    }
+
+    /**
+     * Get valid units for this product's vegetable type
+     */
+    public function getValidUnits(): array
+    {
+        $vegetableSlug = $this->getVegetableSlug();
+        return \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
+    }
+
+    /**
+     * Extract vegetable slug from product name
+     */
+    public function getVegetableSlug(): string
+    {
+        // Convert product name to slug format
+        $name = strtolower($this->product_name);
+        $name = str_replace(' ', '_', $name);
+        
+        // Handle common vegetable name mappings (comprehensive list)
+        $mappings = [
+            // Tomato variations
+            'tomato' => 'kamatis',
+            'tomatoes' => 'kamatis',
+            'kamatis' => 'kamatis',
+            // Onion variations
+            'onion' => 'sibuyas',
+            'onions' => 'sibuyas',
+            'sibuyas' => 'sibuyas',
+            // Garlic variations
+            'garlic' => 'bawang',
+            'bawang' => 'bawang',
+            // Squash variations
+            'squash' => 'kalabasa',
+            'kalabasa' => 'kalabasa',
+            // Bitter gourd variations
+            'bitter_gourd' => 'ampalaya',
+            'bitter_gourd' => 'ampalaya',
+            'ampalaya' => 'ampalaya',
+            // Eggplant variations
+            'eggplant' => 'talong',
+            'talong' => 'talong',
+            // Okra
+            'okra' => 'okra',
+            // String beans variations
+            'string_beans' => 'sitaw',
+            'sitaw' => 'sitaw',
+            // Water spinach variations
+            'water_spinach' => 'kangkong',
+            'kangkong' => 'kangkong',
+            // Pechay
+            'pechay' => 'pechay',
+            // Cabbage variations
+            'cabbage' => 'repolyo',
+            'repolyo' => 'repolyo',
+            // Carrot variations
+            'carrot' => 'carrots',
+            'carrots' => 'carrots',
+            // Sayote
+            'sayote' => 'sayote',
+            // Potato variations
+            'potato' => 'patatas',
+            'potatoes' => 'patatas',
+            'patatas' => 'patatas',
+            // Radish variations
+            'radish' => 'labanos',
+            'labanos' => 'labanos',
+            // Bottle gourd variations
+            'bottle_gourd' => 'upo',
+            'upo' => 'upo',
+            // Ginger variations
+            'ginger' => 'luya',
+            'luya' => 'luya',
+            // Green chili variations
+            'green_chili' => 'siling_green',
+            'siling_green' => 'siling_green',
+            // Red chili variations
+            'red_chili' => 'siling_red',
+            'siling_red' => 'siling_red',
+            // Bell pepper variations
+            'bell_pepper' => 'bell_pepper',
+            // Lettuce
+            'lettuce' => 'lettuce',
+            // Cucumber
+            'cucumber' => 'cucumber',
+            // Broccoli
+            'broccoli' => 'broccoli',
+            // Taro variations
+            'taro' => 'gabi',
+            'gabi' => 'gabi',
+            // Sweet potato tops variations
+            'sweet_potato_tops' => 'talbos_ng_kamote',
+            'talbos_ng_kamote' => 'talbos_ng_kamote',
+        ];
+        
+        return $mappings[$name] ?? $name;
+    }
+
+    /**
+     * Check if product has sufficient stock for the requested weight
+     */
+    public function hasStockForWeight(float $weightKg): bool
+    {
+        return $this->stock_kg >= $weightKg;
+    }
+
+    /**
+     * Reserve stock for an order
+     */
+    public function reserveStock(float $weightKg): bool
+    {
+        if ($this->hasStockForWeight($weightKg)) {
+            $this->stock_kg -= $weightKg;
+            return $this->save();
+        }
+        return false;
+    }
+
+    /**
+     * Release reserved stock back to available stock
+     */
+    public function releaseStock(float $weightKg): bool
+    {
+        $this->stock_kg += $weightKg;
+        return $this->save();
+    }
+
 }
