@@ -16,8 +16,23 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
         ]);
+        
+        // Configure authentication middleware for API routes
+        $middleware->redirectGuestsTo(fn ($request) => 
+            $request->expectsJson() || $request->is('api/*') ? null : '/login'
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Handle authentication exceptions for API routes
+        $exceptions->render(function (Illuminate\Auth\AuthenticationException $e, $request) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json([
+                    'message' => 'Unauthenticated.',
+                    'error' => 'Authentication required'
+                ], 401);
+            }
+            // For web requests, just return a 401 without redirect
+            return response('Unauthorized', 401);
+        });
     })->create();
 

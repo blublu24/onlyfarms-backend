@@ -37,7 +37,9 @@ class ProductVerificationController extends Controller
                 'product_id' => $product->product_id,
                 'product_name' => $product->product_name,
                 'description' => $product->description,
-                'price' => $product->price,
+                'price_per_kg' => $product->price_per_kg,
+                'stock_kg' => $product->stock_kg,
+                'available_units' => $product->available_units,
                 'image_url' => $imageUrl, // Full URL
                 'status' => $product->status,
                 'created_at' => $product->created_at,
@@ -68,7 +70,9 @@ class ProductVerificationController extends Controller
             'product_id' => $productData->product_id,
             'product_name' => $productData->product_name,
             'description' => $productData->description,
-            'price' => $productData->price,
+            'price_per_kg' => $productData->price_per_kg,
+            'stock_kg' => $productData->stock_kg,
+            'available_units' => $productData->available_units,
             'image_url' => $imageUrl, // Full URL
             'status' => $productData->status,
             'created_at' => $productData->created_at,
@@ -100,7 +104,9 @@ class ProductVerificationController extends Controller
             'product_id' => $productData->product_id,
             'product_name' => $productData->product_name,
             'description' => $productData->description,
-            'price' => $productData->price,
+            'price_per_kg' => $productData->price_per_kg,
+            'stock_kg' => $productData->stock_kg,
+            'available_units' => $productData->available_units,
             'image_url' => $productData->image_url, // This will use the model accessor
             'status' => $productData->status,
             'created_at' => $productData->created_at,
@@ -132,7 +138,9 @@ class ProductVerificationController extends Controller
             'product_id' => $productData->product_id,
             'product_name' => $productData->product_name,
             'description' => $productData->description,
-            'price' => $productData->price,
+            'price_per_kg' => $productData->price_per_kg,
+            'stock_kg' => $productData->stock_kg,
+            'available_units' => $productData->available_units,
             'image_url' => $productData->image_url, // This will use the model accessor
             'status' => $productData->status,
             'created_at' => $productData->created_at,
