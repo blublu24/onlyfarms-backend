@@ -158,19 +158,23 @@ class ProductController extends Controller
         $product->full_image_url = $imageUrl;
         $product->fixed_image_url = $imageUrl;
         
-        // Get vegetable slug and available units
+        // Get vegetable slug for reference
         $vegetableSlug = $product->getVegetableSlug();
-        $availableUnits = \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
         
         // Ensure analytics fields are included (same as index method)
         $product->total_sold = $product->total_sold ?? 0;
         $product->avg_rating = $product->avg_rating ?? 0;
         $product->ratings_count = $product->ratings_count ?? 0;
         
-        // Override available_units with correct units based on vegetable type
-        $product->available_units = $availableUnits;
+        // Use the actual available_units from the database (don't override)
+        // If no units are set, fallback to default units for the vegetable type
+        if (!$product->available_units || empty($product->available_units)) {
+            $availableUnits = \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
+            $product->available_units = $availableUnits;
+        }
         $product->vegetable_slug = $vegetableSlug;
 
+        // Variation prices and stocks are already loaded from the database
 
         return response()->json([
             'message' => 'Product fetched successfully',
@@ -196,7 +200,18 @@ class ProductController extends Controller
             'price_per_kg' => 'required|numeric|min:0',
             'available_units' => 'required|string', // JSON string
             'pieces_per_bundle' => 'nullable|integer|min:1',
-            'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'variation_type' => 'nullable|string|max:255',
+            'images.*' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            
+            // Variation prices
+            'premium_price_per_kg' => 'nullable|numeric|min:0',
+            'type_a_price_per_kg' => 'nullable|numeric|min:0',
+            'type_b_price_per_kg' => 'nullable|numeric|min:0',
+            
+            // Variation stocks
+            'premium_stock_kg' => 'nullable|numeric|min:0',
+            'type_a_stock_kg' => 'nullable|numeric|min:0',
+            'type_b_stock_kg' => 'nullable|numeric|min:0',
         ]);
 
         // Parse available_units from JSON string
@@ -210,9 +225,24 @@ class ProductController extends Controller
             return response()->json(['error' => 'Pieces per bundle is required when tali unit is selected'], 422);
         }
 
-        if ($request->hasFile('image_url')) {
-            $path = $request->file('image_url')->store('products', 'public');
-            $validated['image_url'] = $path;
+        // Handle multiple images
+        $imagePaths = [];
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $index => $image) {
+                if ($image) {
+                    $path = $image->store('products', 'public');
+                    $imagePaths[] = $path;
+                }
+            }
+        }
+        
+        // Use the first image as the main image_url for backward compatibility
+        if (!empty($imagePaths)) {
+            $validated['image_url'] = $imagePaths[0];
+            // Store additional images (skip the first one as it's already in image_url)
+            if (count($imagePaths) > 1) {
+                $validated['additional_images'] = array_slice($imagePaths, 1);
+            }
         }
 
         $validated['seller_id'] = $user->id;
@@ -258,6 +288,16 @@ class ProductController extends Controller
             'available_units' => 'sometimes|string', // JSON string
             'pieces_per_bundle' => 'nullable|integer|min:1',
             'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            
+            // Variation prices
+            'premium_price_per_kg' => 'nullable|numeric|min:0',
+            'type_a_price_per_kg' => 'nullable|numeric|min:0',
+            'type_b_price_per_kg' => 'nullable|numeric|min:0',
+            
+            // Variation stocks
+            'premium_stock_kg' => 'nullable|numeric|min:0',
+            'type_a_stock_kg' => 'nullable|numeric|min:0',
+            'type_b_stock_kg' => 'nullable|numeric|min:0',
         ]);
 
         // Parse available_units from JSON string if provided

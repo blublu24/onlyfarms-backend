@@ -63,7 +63,7 @@ Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id"
 // Multi-unit order creation and seller verification routes
 Route::middleware(['auth:sanctum'])->group(function () {
     // Create order with multi-unit support
-    Route::post('/orders', [OrderController::class, 'createOrder']);
+    Route::post('/orders', [OrderController::class, 'store']);
     
     // Seller verification routes
     Route::get('/seller/{sellerId}/orders/pending', [OrderController::class, 'getPendingOrders']);
@@ -71,6 +71,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     
     // Order cancellation
     Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancelOrder']);
+    
+    // Seller confirmation (decreases stock)
+    Route::post('/orders/{orderId}/seller/confirm', [OrderController::class, 'sellerConfirmOrder']);
+    
+    // Update order item weight
+    Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateOrderItem']);
     
     // Buyer confirmation
     Route::post('/orders/{orderId}/buyer/confirm', [OrderController::class, 'buyerConfirm']);

@@ -17,6 +17,10 @@ class OrderItem extends Model
         'unit',         // Unit of measurement (e.g., kg, sacks, tali, piece, packet)
         'image_url',    // Snapshot of product image (optional convenience)
         
+        // Product variation fields
+        'variation_type',          // Product variation: premium, typeA, typeB
+        'variation_name',          // Display name: Premium, Type A, Type B
+        
         // Seller verification fields
         'estimated_weight_kg',     // Estimated weight based on unit conversion
         'actual_weight_kg',        // Actual weight as confirmed by seller

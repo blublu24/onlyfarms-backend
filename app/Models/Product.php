@@ -23,13 +23,25 @@ class Product extends Model
         'product_name',
         'description',
         'image_url',
+        'additional_images',
         'seller_id',
 
         // Multi-unit support
         'stock_kg',
+        'total_sold',
         'price_per_kg',
         'available_units',
         'pieces_per_bundle',
+
+        // Variation prices
+        'premium_price_per_kg',
+        'type_a_price_per_kg',
+        'type_b_price_per_kg',
+
+        // Variation stocks
+        'premium_stock_kg',
+        'type_a_stock_kg',
+        'type_b_stock_kg',
 
         // Ratings
         'avg_rating',
@@ -58,13 +70,22 @@ class Product extends Model
         'stock_kg' => 'decimal:4',
         'price_per_kg' => 'decimal:2',
         'available_units' => 'array',
+        'additional_images' => 'array',
         'avg_rating' => 'decimal:2',
         'ratings_count' => 'integer',
         'rating_weight' => 'decimal:4',
-        'total_sold' => 'integer',
+        'total_sold' => 'decimal:2',
         'relevance_score' => 'decimal:4',
         'manual_availability_date' => 'date',
         'accept_preorders' => 'boolean',
+        // Variation prices
+        'premium_price_per_kg' => 'decimal:2',
+        'type_a_price_per_kg' => 'decimal:2',
+        'type_b_price_per_kg' => 'decimal:2',
+        // Variation stocks
+        'premium_stock_kg' => 'decimal:4',
+        'type_a_stock_kg' => 'decimal:4',
+        'type_b_stock_kg' => 'decimal:4',
     ];
 
     /* ==============================
