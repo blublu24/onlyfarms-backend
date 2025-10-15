@@ -103,4 +103,82 @@ class AnalyticsController extends Controller
 
         return response()->json($data);
     }
+
+    // 📅 Daily Sales (last 7 days)
+    public function dailySales()
+    {
+        $data = DB::table('order_items as oi')
+            ->join('orders as o', 'oi.order_id', '=', 'o.id')
+            ->where('o.status', 'completed')
+            ->where('oi.created_at', '>=', now()->subDays(7))
+            ->selectRaw('DATE(oi.created_at) as date, SUM(oi.price * oi.quantity) as total_sales')
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get();
+
+        return response()->json($data);
+    }
+
+    // 📊 Weekly Sales (last 4 weeks)
+    public function weeklySales()
+    {
+        $data = DB::table('order_items as oi')
+            ->join('orders as o', 'oi.order_id', '=', 'o.id')
+            ->where('o.status', 'completed')
+            ->where('oi.created_at', '>=', now()->subWeeks(4))
+            ->selectRaw('YEARWEEK(oi.created_at) as week, SUM(oi.price * oi.quantity) as total_sales')
+            ->groupBy('week')
+            ->orderBy('week')
+            ->get();
+
+        return response()->json($data);
+    }
+
+    // 📈 Monthly Sales Detailed (last 6 months)
+    public function monthlySalesDetailed()
+    {
+        $data = DB::table('order_items as oi')
+            ->join('orders as o', 'oi.order_id', '=', 'o.id')
+            ->where('o.status', 'completed')
+            ->where('oi.created_at', '>=', now()->subMonths(6))
+            ->selectRaw('YEAR(oi.created_at) as year, MONTH(oi.created_at) as month, SUM(oi.price * oi.quantity) as total_sales')
+            ->groupBy('year', 'month')
+            ->orderBy('year')
+            ->orderBy('month')
+            ->get();
+
+        return response()->json($data);
+    }
+
+    // 🏆 Top Seller
+    public function topSeller()
+    {
+        $data = DB::table('order_items as oi')
+            ->join('orders as o', 'oi.order_id', '=', 'o.id')
+            ->join('sellers as s', 'oi.seller_id', '=', 's.user_id')
+            ->join('users as u', 's.user_id', '=', 'u.id')
+            ->where('o.status', 'completed')
+            ->selectRaw('s.shop_name, u.name, u.avatar as profile_image, SUM(oi.price * oi.quantity) as revenue, COUNT(DISTINCT o.id) as orders')
+            ->groupBy('s.id', 's.shop_name', 'u.name', 'u.avatar')
+            ->orderByDesc('revenue')
+            ->first();
+
+        return response()->json($data);
+    }
+
+    // ⭐ Top Rated Product
+    public function topRatedProduct()
+    {
+        $data = DB::table('products as p')
+            ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
+            ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
+                        AVG(r.rating) as average_rating, COUNT(r.id) as total_reviews')
+            ->groupBy('p.product_id', 'p.product_name', 'p.price_kg', 'p.price_bunches', 'p.image_url', 'p.full_image_url')
+            ->having('total_reviews', '>', 0)
+            ->orderByDesc('average_rating')
+            ->orderByDesc('total_reviews')
+            ->first();
+
+        return response()->json($data);
+    }
 }
