@@ -151,6 +151,13 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::get('/analytics/monthly-sales', [AnalyticsController::class, 'monthlySales']);
     Route::get('/analytics/top-products', [AnalyticsController::class, 'topProducts']);
     Route::get('/analytics/seasonal-trends', [AnalyticsController::class, 'seasonalTrends']);
+    
+    // 🆕 NEW: Enhanced Analytics Endpoints
+    Route::get('/analytics/daily-sales', [AnalyticsController::class, 'dailySales']);
+    Route::get('/analytics/weekly-sales', [AnalyticsController::class, 'weeklySales']);
+    Route::get('/analytics/monthly-sales-detailed', [AnalyticsController::class, 'monthlySalesDetailed']);
+    Route::get('/analytics/top-seller', [AnalyticsController::class, 'topSeller']);
+    Route::get('/analytics/top-rated-product', [AnalyticsController::class, 'topRatedProduct']);
 
     // Reviews
     Route::post('/products/{productId}/order-items/{orderItemId}/reviews', [ReviewController::class, 'store']);
