@@ -57,6 +57,11 @@ class OrderItem extends Model
         return $this->belongsTo(Product::class, 'product_id', 'product_id');
     }
 
+    public function seller()
+    {
+        return $this->belongsTo(Seller::class, 'seller_id', 'id');
+    }
+
     /**
      * Calculate the final price based on actual weight
      */

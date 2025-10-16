@@ -44,9 +44,21 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
+        $orderWithRelations = $order->load(['items.seller', 'user', 'address']);
+        
+        // Debug: Log seller information
+        foreach ($orderWithRelations->items as $item) {
+            Log::info('Order item seller debug:', [
+                'item_id' => $item->id,
+                'seller_id' => $item->seller_id,
+                'seller_loaded' => $item->seller ? 'yes' : 'no',
+                'seller_name' => $item->seller->shop_name ?? 'null',
+            ]);
+        }
+        
         return response()->json([
             'message' => 'Order fetched successfully',
-            'data' => $order->load(['items', 'user', 'address'])
+            'data' => $orderWithRelations
         ]);
     }
 
@@ -58,6 +70,19 @@ class OrderController extends Controller
         try {
             Log::info('Order creation started', ['user_id' => $request->user()->id]);
             Log::info('Raw request data:', $request->all());
+            Log::info('🚀 BACKEND CHANGES ARE ACTIVE - Order creation with new logic!');
+            
+            // Debug: Log each item being processed
+            foreach ($request->input('items', []) as $index => $item) {
+                Log::info("Processing item {$index}:", [
+                    'product_id' => $item['product_id'] ?? 'missing',
+                    'quantity' => $item['quantity'] ?? 'missing',
+                    'unit' => $item['unit'] ?? 'missing',
+                    'variation_type' => $item['variation_type'] ?? 'missing',
+                    'variation_name' => $item['variation_name'] ?? 'missing',
+                    'variation_price' => $item['variation_price'] ?? 'missing',
+                ]);
+            }
 
             $data = $request->validate([
                 'items' => 'required|array|min:1',
@@ -130,24 +155,81 @@ class OrderController extends Controller
                     
                     // Calculate estimated weight based on unit
                     $estimatedWeightKg = 0;
+                    $variationPricePerKg = null;
+                    
                     if ($unit === 'kg') {
-                        $estimatedWeightKg = $qty; // Direct kg quantity
+                        // For kg units, if we have variation_price, calculate weight from total price
+                        if (isset($row['variation_price']) && $row['variation_price']) {
+                            // First determine the price per kg for this variation
+                            $variationPricePerKg = $product->price_per_kg; // Default to base price
+                            
+                            // If it's a variation, use the variation-specific price
+                            if (isset($row['variation_type'])) {
+                                switch ($row['variation_type']) {
+                                    case 'premium':
+                                        $variationPricePerKg = $product->premium_price_per_kg ?? $product->price_per_kg;
+                                        break;
+                                    case 'typeA':
+                                        $variationPricePerKg = $product->type_a_price_per_kg ?? $product->price_per_kg;
+                                        break;
+                                    case 'typeB':
+                                        $variationPricePerKg = $product->type_b_price_per_kg ?? $product->price_per_kg;
+                                        break;
+                                }
+                            }
+                            
+                            // Calculate weight from total price and variation price per kg
+                            if ($variationPricePerKg > 0) {
+                                $estimatedWeightKg = $row['variation_price'] / $variationPricePerKg;
+                            } else {
+                                $estimatedWeightKg = $qty; // Fallback to quantity
+                            }
+                        } else {
+                            $estimatedWeightKg = $qty; // Direct kg quantity
+                        }
                     } else {
                         // Get vegetable slug and calculate weight from unit conversion
                         $vegetableSlug = $product->getVegetableSlug();
                         $standardWeightPerUnit = \App\Models\UnitConversion::getStandardWeight($vegetableSlug, $unit);
+                        
+                        // If unit conversion returns 0, use fallback weights
+                        if ($standardWeightPerUnit <= 0) {
+                            // Fallback weights for common units
+                            $fallbackWeights = [
+                                'packet' => 0.25,  // 250g per packet
+                                'tali' => 0.3,     // 300g per tali
+                                'piece' => 0.2,    // 200g per piece
+                                'sack' => 15,      // 15kg per sack
+                                'small_sack' => 10, // 10kg per small sack
+                            ];
+                            $standardWeightPerUnit = $fallbackWeights[$unit] ?? 0.1; // Default 100g
+                        }
+                        
                         $estimatedWeightKg = $qty * $standardWeightPerUnit;
                     }
                     
+                    // Debug: Log weight calculation
+                    Log::info('Weight calculation:', [
+                        'product_name' => $product->product_name,
+                        'unit' => $unit,
+                        'quantity' => $qty,
+                        'estimated_weight_kg' => $estimatedWeightKg,
+                        'variation_type' => $row['variation_type'] ?? 'none',
+                        'variation_price' => $row['variation_price'] ?? 'none',
+                        'variation_price_per_kg' => $variationPricePerKg ?? 'N/A',
+                        'vegetable_slug' => $vegetableSlug ?? 'N/A',
+                        'standard_weight_per_unit' => $standardWeightPerUnit ?? 'N/A',
+                    ]);
+                    
                     // Determine price based on unit - use variation price if provided, otherwise use product price
-                    $pricePerKg = $product->price_per_kg; // Always use product's base price per kg
+                    $pricePerKg = $product->price_per_kg; // Default to product's base price per kg
                     $unitPrice = 0;
                     
                     // If variation_price is provided, it's the total price for the quantity
                     if (isset($row['variation_price']) && $row['variation_price']) {
                         $unitPrice = (float) $row['variation_price']; // This is the total price
                         // Calculate the actual price per kg from the total price
-                        $pricePerKg = $unitPrice / $estimatedWeightKg;
+                        $pricePerKg = $estimatedWeightKg > 0 ? $unitPrice / $estimatedWeightKg : $product->price_per_kg;
                     } else if ($pricePerKg && $product->available_units) {
                         $availableUnits = is_string($product->available_units) 
                             ? json_decode($product->available_units, true) 
@@ -200,9 +282,22 @@ class OrderController extends Controller
                         ? $raw
                         : ($raw ? asset('storage/' . $raw) : null);
 
+                    // Find the actual Seller ID (not User ID) for this product
+                    $seller = \App\Models\Seller::where('user_id', $product->seller_id)->first();
+                    $actualSellerId = $seller ? $seller->id : null;
+                    
+                    // Debug: Log seller lookup
+                    Log::info('Seller lookup:', [
+                        'product_name' => $product->product_name,
+                        'product_seller_id' => $product->seller_id, // This is User ID
+                        'found_seller' => $seller ? 'yes' : 'no',
+                        'actual_seller_id' => $actualSellerId, // This should be Seller ID
+                        'seller_name' => $seller ? $seller->shop_name : 'null',
+                    ]);
+                    
                     $lineItems[] = [
                         'product_id' => $product->product_id,
-                        'seller_id' => $product->seller_id,
+                        'seller_id' => $actualSellerId,
                         'product_name' => $product->product_name,
                         'price' => $unitPrice,
                         'quantity' => $qty,
@@ -229,6 +324,7 @@ class OrderController extends Controller
                         'variation_name' => $row['variation_name'] ?? null,
                         'variation_price' => $row['variation_price'] ?? null,
                         'is_variation' => isset($row['variation_price']) && $row['variation_price'],
+                        'seller_id' => $product->seller_id,
                     ]);
 
                     // Debug logging for seller_id
@@ -255,7 +351,24 @@ class OrderController extends Controller
                 $order = Order::create($orderData);
 
                 foreach ($lineItems as $li) {
-                    $order->items()->create($li);
+                    // Debug: Log what's being saved to database
+                    Log::info('Creating order item in database:', [
+                        'order_id' => $order->id,
+                        'estimated_weight_kg' => $li['estimated_weight_kg'],
+                        'price_per_kg_at_order' => $li['price_per_kg_at_order'],
+                        'estimated_price' => $li['estimated_price'],
+                        'variation_name' => $li['variation_name'] ?? 'none',
+                    ]);
+                    
+                    $createdItem = $order->items()->create($li);
+                    
+                    // Debug: Log what was actually saved
+                    Log::info('Order item created in database:', [
+                        'item_id' => $createdItem->id,
+                        'estimated_weight_kg' => $createdItem->estimated_weight_kg,
+                        'price_per_kg_at_order' => $createdItem->price_per_kg_at_order,
+                        'estimated_price' => $createdItem->estimated_price,
+                    ]);
                 }
 
                 // ✅ STOCK MANAGEMENT: Don't decrease stock when order is placed
@@ -815,16 +928,23 @@ class OrderController extends Controller
      */
     public function sellerConfirmOrder(Request $request, $orderId)
     {
-        $request->validate([
-            'seller_id' => 'required|integer'
-        ]);
-
         DB::beginTransaction();
         try {
+            $user = $request->user();
+            if (!$user->is_seller) {
+                throw new \Exception('Unauthorized: You are not a seller');
+            }
+            
+            // Get the actual Seller ID (not User ID) for this user
+            $seller = $user->seller;
+            if (!$seller) {
+                throw new \Exception('Seller profile not found');
+            }
+            
             $order = Order::findOrFail($orderId);
             
             // Check if seller is authorized
-            $hasSellerItems = $order->items()->where('seller_id', $request->seller_id)->exists();
+            $hasSellerItems = $order->items()->where('seller_id', $seller->id)->exists();
             if (!$hasSellerItems) {
                 throw new \Exception('Unauthorized: You can only confirm orders containing your products');
             }
@@ -834,7 +954,7 @@ class OrderController extends Controller
             }
 
             // Decrease stock for each item in this seller's products
-            foreach ($order->items()->where('seller_id', $request->seller_id)->get() as $orderItem) {
+            foreach ($order->items()->where('seller_id', $seller->id)->get() as $orderItem) {
                 $product = Product::find($orderItem->product_id);
                 if ($product) {
                     // Use actual_weight_kg (adjusted by seller) or fallback to estimated_weight_kg
@@ -902,8 +1022,18 @@ class OrderController extends Controller
                 ->firstOrFail();
 
             // Check if user is authorized (seller of this item)
-            $sellerId = $request->user()->id;
-            if ($orderItem->seller_id != $sellerId) {
+            $user = $request->user();
+            if (!$user->is_seller) {
+                throw new \Exception('Unauthorized: You are not a seller');
+            }
+            
+            // Get the actual Seller ID (not User ID) for this user
+            $seller = $user->seller;
+            if (!$seller) {
+                throw new \Exception('Seller profile not found');
+            }
+            
+            if ($orderItem->seller_id != $seller->id) {
                 throw new \Exception('Unauthorized: You can only update items from your own orders');
             }
 
