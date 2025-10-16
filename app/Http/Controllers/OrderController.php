@@ -9,6 +9,8 @@ use App\Models\OrderItem;
 use App\Models\UnitConversion;
 use App\Events\ProductStockUpdated;
 use App\Events\ProductSalesUpdated;
+use App\Events\NewOrderNotification;
+use App\Events\OrderDeliveredNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -44,7 +46,7 @@ class OrderController extends Controller
 
         return response()->json([
             'message' => 'Order fetched successfully',
-            'data' => $order->load('items')
+            'data' => $order->load(['items', 'user', 'address'])
         ]);
     }
 
@@ -55,16 +57,22 @@ class OrderController extends Controller
     {
         try {
             Log::info('Order creation started', ['user_id' => $request->user()->id]);
+            Log::info('Raw request data:', $request->all());
 
             $data = $request->validate([
                 'items' => 'required|array|min:1',
                 'items.*.product_id' => 'required|integer|exists:products,product_id',
                 'items.*.quantity' => 'required|integer|min:1|max:999',
-                'items.*.unit' => 'required|string|in:kg,bunches',
+                'items.*.unit' => 'required|string|in:kg,sack,small_sack,packet,tali,piece,bunches',
+                'items.*.variation_type' => 'nullable|string|in:premium,typeA,typeB,typeC',
+                'items.*.variation_name' => 'nullable|string',
+                'items.*.variation_price' => 'nullable|numeric|min:0',
                 'address_id' => 'required|exists:addresses,address_id',
                 'notes' => 'nullable|string|max:500',
                 'payment_method' => 'nullable|string|in:cod,gcash,card',
             ]);
+
+            Log::info('Validated data:', $data);
 
             $user = $request->user();
 
@@ -131,18 +139,26 @@ class OrderController extends Controller
                         $estimatedWeightKg = $qty * $standardWeightPerUnit;
                     }
                     
-                    // Determine price based on unit - use new multi-unit pricing system
+                    // Determine price based on unit - use variation price if provided, otherwise use product price
+                    $pricePerKg = $product->price_per_kg; // Always use product's base price per kg
                     $unitPrice = 0;
-                    if ($product->price_per_kg && $product->available_units) {
+                    
+                    // If variation_price is provided, it's the total price for the quantity
+                    if (isset($row['variation_price']) && $row['variation_price']) {
+                        $unitPrice = (float) $row['variation_price']; // This is the total price
+                        // Calculate the actual price per kg from the total price
+                        $pricePerKg = $unitPrice / $estimatedWeightKg;
+                    } else if ($pricePerKg && $product->available_units) {
                         $availableUnits = is_string($product->available_units) 
                             ? json_decode($product->available_units, true) 
                             : $product->available_units;
                         
                         if ($unit === 'kg') {
-                            $unitPrice = (float) $product->price_per_kg;
+                            $unitPrice = (float) $pricePerKg;
                         } else {
-                            // For other units, calculate price based on estimated weight
-                            $unitPrice = (float) $product->price_per_kg * $estimatedWeightKg / $qty;
+                            // For other units, calculate price per unit based on estimated weight
+                            // unitPrice should be the price per unit (e.g., price per sack, price per bunch)
+                            $unitPrice = (float) $pricePerKg * $estimatedWeightKg / $qty;
                         }
                     } else {
                         // Fallback to old pricing system
@@ -151,11 +167,32 @@ class OrderController extends Controller
                         } elseif ($unit === 'bunches' && $product->price_bunches) {
                             $unitPrice = (float) $product->price_bunches;
                         } else {
-                            $unitPrice = (float) $product->price ?? 0;
+                            // If no price is found, use a default or throw an error
+                            Log::error('No price found for product', [
+                                'product_id' => $product->product_id,
+                                'product_name' => $product->product_name,
+                                'unit' => $unit,
+                                'price_per_kg' => $product->price_per_kg,
+                                'price_kg' => $product->price_kg ?? 'null',
+                                'price_bunches' => $product->price_bunches ?? 'null'
+                            ]);
+                            $unitPrice = 0; // This will cause the order to fail validation
                         }
                     }
                     
-                    $lineTotal = round($unitPrice * $qty, 2);
+                    // Calculate line total correctly
+                    if (isset($row['variation_price']) && $row['variation_price']) {
+                        // For variations, unitPrice is already the total price
+                        $lineTotal = round($unitPrice, 2);
+                    } else {
+                        // For regular items, multiply unit price by quantity
+                        $lineTotal = round($unitPrice * $qty, 2);
+                    }
+                    // Validate that we have a valid price
+                    if ($unitPrice <= 0) {
+                        abort(422, "Invalid price for product '{$product->product_name}'. Please contact support.");
+                    }
+                    
                     $total = round($total + $lineTotal, 2);
 
                     $raw = $product->image_url;
@@ -171,9 +208,11 @@ class OrderController extends Controller
                         'quantity' => $qty,
                         'unit' => $unit,
                         'estimated_weight_kg' => round($estimatedWeightKg, 4),
-                        'price_per_kg_at_order' => (float) $product->price_per_kg ?? 0,
+                        'price_per_kg_at_order' => (float) $pricePerKg ?? 0,
                         'estimated_price' => $lineTotal,
                         'image_url' => $fullImage,
+                        'variation_type' => $row['variation_type'] ?? null,
+                        'variation_name' => $row['variation_name'] ?? null,
                     ];
 
                     // Debug logging for line item creation
@@ -182,8 +221,14 @@ class OrderController extends Controller
                         'unit' => $unit,
                         'quantity' => $qty,
                         'estimated_weight_kg' => round($estimatedWeightKg, 4),
+                        'unit_price' => $unitPrice,
+                        'line_total' => $lineTotal,
                         'estimated_price' => $lineTotal,
-                        'price_per_kg_at_order' => (float) $product->price_per_kg ?? 0,
+                        'price_per_kg_at_order' => (float) $pricePerKg ?? 0,
+                        'variation_type' => $row['variation_type'] ?? null,
+                        'variation_name' => $row['variation_name'] ?? null,
+                        'variation_price' => $row['variation_price'] ?? null,
+                        'is_variation' => isset($row['variation_price']) && $row['variation_price'],
                     ]);
 
                     // Debug logging for seller_id
@@ -213,51 +258,13 @@ class OrderController extends Controller
                     $order->items()->create($li);
                 }
 
-                // 🔒 ATOMIC: Decrement stock for each product using atomic operations
-                foreach ($data['items'] as $row) {
-                    $product = $products[$row['product_id']];
-                    $qty = (int) $row['quantity'];
-                    $unit = $row['unit'];
-                    
-                    // Calculate required stock in kg (same logic as validation)
-                    $requiredStockKg = 0;
-                    if ($unit === 'kg') {
-                        $requiredStockKg = $qty; // Direct kg quantity
-                    } else {
-                        // Get vegetable slug and calculate weight from unit conversion
-                        $vegetableSlug = $product->getVegetableSlug();
-                        $standardWeightPerUnit = \App\Models\UnitConversion::getStandardWeight($vegetableSlug, $unit);
-                        $requiredStockKg = $qty * $standardWeightPerUnit;
-                    }
-                    
-                    // Use atomic decrement to prevent race conditions
-                    $oldStock = (float) $product->stock_kg;
-                    $newStock = max(0, $oldStock - $requiredStockKg);
-                    
-                    // Atomic update with stock validation
-                    $updated = Product::where('product_id', $product->product_id)
-                        ->where('stock_kg', '>=', $requiredStockKg) // Double-check stock is still sufficient
-                        ->update(['stock_kg' => $newStock]);
-                    
-                    if (!$updated) {
-                        // Stock was insufficient - this should not happen due to locks, but safety check
-                        throw new \Exception("Stock became insufficient during order processing for product {$product->product_name}");
-                    }
-                    
-                    Log::info('Stock decremented atomically', [
-                        'product_id' => $product->product_id,
-                        'product_name' => $product->product_name,
-                        'old_stock' => $oldStock,
-                        'new_stock' => $newStock,
-                        'decremented_by' => $requiredStockKg,
-                        'unit' => $unit,
-                        'quantity_ordered' => $qty,
-                        'order_id' => $order->id
-                    ]);
-                    
-                    // Broadcast stock update via Reverb
-                    event(new ProductStockUpdated($product->fresh()));
-                }
+                // ✅ STOCK MANAGEMENT: Don't decrease stock when order is placed
+                // Stock will only be decreased when seller confirms the order
+                Log::info('Order created without stock reduction - waiting for seller confirmation', [
+                    'order_id' => $order->id,
+                    'status' => 'pending',
+                    'total_items' => count($lineItems)
+                ]);
 
                 // PayMongo checkout integration
                 if ($order->payment_method !== 'cod') {
@@ -582,6 +589,9 @@ class OrderController extends Controller
         // ✅ Use the helper
         $this->markAsCompleted($order);
 
+        // 🔔 NOTIFICATION: Send delivery notification to buyer
+        event(new OrderDeliveredNotification($order->fresh(), $order->user_id));
+
         return response()->json([
             'message' => 'The COD order has been delivered and marked as paid.',
             'order' => $order
@@ -601,6 +611,9 @@ class OrderController extends Controller
             'items.*.vegetable_slug' => 'required|string',
             'items.*.unit' => 'required|string',
             'items.*.quantity' => 'required|numeric|min:0.1',
+            'items.*.variation_type' => 'nullable|string|in:premium,typeA,typeB,typeC',
+            'items.*.variation_name' => 'nullable|string',
+            'items.*.variation_price' => 'nullable|numeric|min:0',
             'payment_method' => 'required|string|in:cod,online,wallet'
         ]);
 
@@ -645,8 +658,9 @@ class OrderController extends Controller
                 // Broadcast stock update
                 event(new ProductStockUpdated($product->fresh()));
 
-                // Calculate estimated price
-                $estimatedPrice = $estimatedWeight * $product->price_per_kg;
+                // Calculate estimated price - use variation price if provided, otherwise use product price
+                $pricePerKg = $item['variation_price'] ?? $product->price_per_kg;
+                $estimatedPrice = $estimatedWeight * $pricePerKg;
 
                 // Create order item
                 OrderItem::create([
@@ -658,8 +672,10 @@ class OrderController extends Controller
                     'quantity' => $item['quantity'],
                     'unit' => $item['unit'],
                     'image_url' => $product->image_url,
+                    'variation_type' => $item['variation_type'] ?? null,
+                    'variation_name' => $item['variation_name'] ?? null,
                     'estimated_weight_kg' => $estimatedWeight,
-                    'price_per_kg_at_order' => $product->price_per_kg,
+                    'price_per_kg_at_order' => $pricePerKg,
                     'estimated_price' => $estimatedPrice,
                     'reserved' => true,
                     'seller_verification_status' => 'pending'
@@ -795,6 +811,123 @@ class OrderController extends Controller
     }
 
     /**
+     * Seller confirms order and decreases stock
+     */
+    public function sellerConfirmOrder(Request $request, $orderId)
+    {
+        $request->validate([
+            'seller_id' => 'required|integer'
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $order = Order::findOrFail($orderId);
+            
+            // Check if seller is authorized
+            $hasSellerItems = $order->items()->where('seller_id', $request->seller_id)->exists();
+            if (!$hasSellerItems) {
+                throw new \Exception('Unauthorized: You can only confirm orders containing your products');
+            }
+
+            if ($order->status !== 'pending') {
+                throw new \Exception('Order cannot be confirmed at this stage');
+            }
+
+            // Decrease stock for each item in this seller's products
+            foreach ($order->items()->where('seller_id', $request->seller_id)->get() as $orderItem) {
+                $product = Product::find($orderItem->product_id);
+                if ($product) {
+                    // Use actual_weight_kg (adjusted by seller) or fallback to estimated_weight_kg
+                    $actualWeightKg = $orderItem->actual_weight_kg ?? $orderItem->estimated_weight_kg ?? 0;
+                    
+                    // Check if stock is sufficient
+                    $currentStock = (float) $product->stock_kg;
+                    if ($currentStock < $actualWeightKg) {
+                        throw new \Exception("Insufficient stock for {$product->product_name}. Available: {$currentStock}kg, Required: {$actualWeightKg}kg");
+                    }
+                    
+                    // Decrease stock atomically
+                    $newStock = max(0, $currentStock - $actualWeightKg);
+                    $product->update(['stock_kg' => $newStock]);
+                    
+                    // Update total sold with actual weight
+                    $product->increment('total_sold', $actualWeightKg);
+                    
+                    // Broadcast stock update
+                    event(new ProductStockUpdated($product->fresh()));
+                    
+                    Log::info('Stock decreased on seller confirmation', [
+                        'order_id' => $order->id,
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'old_stock' => $currentStock,
+                        'new_stock' => $newStock,
+                        'decremented_by' => $actualWeightKg,
+                        'actual_weight_kg' => $actualWeightKg,
+                        'estimated_weight_kg' => $orderItem->estimated_weight_kg
+                    ]);
+                }
+            }
+
+            // Update order status to confirmed - waiting for delivery
+            $order->update(['status' => 'confirmed_waiting_delivery']);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Order confirmed successfully',
+                'order_id' => $orderId,
+                'status' => 'confirmed_waiting_delivery'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Update order item (for weight adjustments)
+     */
+    public function updateOrderItem(Request $request, $orderId, $itemId)
+    {
+        $request->validate([
+            'actual_weight_kg' => 'nullable|numeric|min:0',
+            'seller_verification_status' => 'nullable|string|in:pending,seller_accepted,seller_rejected,seller_adjusted'
+        ]);
+
+        try {
+            $orderItem = OrderItem::where('id', $itemId)
+                ->where('order_id', $orderId)
+                ->firstOrFail();
+
+            // Check if user is authorized (seller of this item)
+            $sellerId = $request->user()->id;
+            if ($orderItem->seller_id != $sellerId) {
+                throw new \Exception('Unauthorized: You can only update items from your own orders');
+            }
+
+            $updateData = [];
+            if ($request->has('actual_weight_kg')) {
+                $updateData['actual_weight_kg'] = $request->actual_weight_kg;
+            }
+            if ($request->has('seller_verification_status')) {
+                $updateData['seller_verification_status'] = $request->seller_verification_status;
+            }
+
+            $orderItem->update($updateData);
+
+            return response()->json([
+                'message' => 'Order item updated successfully',
+                'item' => $orderItem->fresh()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
      * Cancel order before confirmation (returns reserved stock)
      */
     public function cancelOrder(Request $request, $orderId)
@@ -807,26 +940,21 @@ class OrderController extends Controller
         try {
             $order = Order::findOrFail($orderId);
 
-            // Check if user is authorized (buyer or seller)
-            if ($order->user_id != $request->user_id && $order->seller_id != $request->user_id) {
+            // Check if user is authorized (buyer only for now)
+            if ($order->user_id != $request->user_id) {
                 throw new \Exception('Unauthorized: You can only cancel your own orders');
             }
 
-            if (!in_array($order->status, ['for_seller_verification', 'awaiting_buyer_confirmation'])) {
+            if (!in_array($order->status, ['pending', 'for_seller_verification', 'awaiting_buyer_confirmation'])) {
                 throw new \Exception('Order cannot be cancelled at this stage');
             }
 
+            // Update order items status
             foreach ($order->items as $orderItem) {
-                if ($orderItem->reserved) {
-                    $product = $orderItem->product;
-                    $product->releaseStock($orderItem->estimated_weight_kg);
-                    event(new ProductStockUpdated($product->fresh()));
-
-                    $orderItem->update([
-                        'reserved' => false,
-                        'seller_verification_status' => 'cancelled'
-                    ]);
-                }
+                $orderItem->update([
+                    'reserved' => false,
+                    'seller_verification_status' => 'seller_rejected' // Use valid enum value
+                ]);
             }
 
             $order->update(['status' => 'cancelled']);

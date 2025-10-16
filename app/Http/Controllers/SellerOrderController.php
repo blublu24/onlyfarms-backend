@@ -89,7 +89,7 @@ class SellerOrderController extends Controller
 
         $order = Order::with(['items' => function ($q) use ($user) {
             $q->where('seller_id', $user->id);
-        }])->findOrFail($orderId);
+        }, 'user', 'address'])->findOrFail($orderId);
 
         // Check if seller actually has items in this order
         if ($order->items->isEmpty()) {
