@@ -14,6 +14,8 @@ class Order extends Model
         'total',
         'status',
         'delivery_address',
+        'delivery_method',
+        'use_third_party_delivery',
         'note',
         'payment_method',
         'payment_link',
@@ -22,6 +24,7 @@ class Order extends Model
 
     protected $casts = [
         'total' => 'decimal:2',
+        'use_third_party_delivery' => 'boolean',
     ];
 
     public function user(): BelongsTo

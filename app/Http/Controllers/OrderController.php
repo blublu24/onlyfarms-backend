@@ -92,21 +92,40 @@ class OrderController extends Controller
                 'items.*.variation_type' => 'nullable|string|in:premium,typeA,typeB,typeC',
                 'items.*.variation_name' => 'nullable|string',
                 'items.*.variation_price' => 'nullable|numeric|min:0',
-                'address_id' => 'required|exists:addresses,address_id',
+                'address_id' => 'nullable|exists:addresses,address_id',
                 'notes' => 'nullable|string|max:500',
                 'payment_method' => 'nullable|string|in:cod,gcash,card',
+                'delivery_method' => 'required|string|in:pickup,delivery',
             ]);
 
             Log::info('Validated data:', $data);
 
+            // Additional validation: address_id is required for delivery orders
+            if ($data['delivery_method'] === 'delivery' && empty($data['address_id'])) {
+                return response()->json([
+                    'message' => 'Delivery address is required for delivery orders',
+                    'error' => 'Address is required when delivery method is "delivery"'
+                ], 422);
+            }
+
             $user = $request->user();
 
-            // Ensure address belongs to this user
-            $address = Address::where('address_id', $data['address_id'])
-                ->where('user_id', $user->id)
-                ->firstOrFail();
+            // Get address only if delivery method is delivery
+            $address = null;
+            if ($data['delivery_method'] === 'delivery' && !empty($data['address_id'])) {
+                $address = Address::where('address_id', $data['address_id'])
+                    ->where('user_id', $user->id)
+                    ->firstOrFail();
+            }
 
-            $deliveryAddress = $address->name . ', ' . $address->phone . ', ' . $address->address;
+            // Construct delivery address string
+            $deliveryAddress = '';
+            if ($address) {
+                $deliveryAddress = $address->name . ', ' . $address->phone . ', ' . $address->address;
+            } else {
+                // For pickup orders, set a default message
+                $deliveryAddress = 'Pick-up from seller - Address to be provided by seller';
+            }
 
             return DB::transaction(function () use ($data, $user, $deliveryAddress) {
                 $productIds = collect($data['items'])->pluck('product_id')->all();
@@ -338,10 +357,11 @@ class OrderController extends Controller
 
                 $orderData = [
                     'user_id' => $user->id,
-                    'address_id' => $data['address_id'],
+                    'address_id' => $data['address_id'] ?? null,
                     'total' => $total,
                     'status' => 'pending',
                     'delivery_address' => $deliveryAddress,
+                    'delivery_method' => $data['delivery_method'],
                     'note' => $data['notes'] ?? null,
                     'payment_method' => $data['payment_method'] ?? 'cod',
                     'payment_link' => null,
@@ -461,6 +481,8 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'status' => $order->status,
                     'payment_method' => $order->payment_method,
+                    'delivery_method' => $order->delivery_method,
+                    'use_third_party_delivery' => $order->use_third_party_delivery,
                     'note' => $order->note,
                     'total' => $order->total,
                     'items' => $order->items->map(function ($item) {
@@ -928,6 +950,11 @@ class OrderController extends Controller
      */
     public function sellerConfirmOrder(Request $request, $orderId)
     {
+        // Validate the request
+        $validated = $request->validate([
+            'use_third_party_delivery' => 'nullable|boolean'
+        ]);
+
         DB::beginTransaction();
         try {
             $user = $request->user();
@@ -990,7 +1017,14 @@ class OrderController extends Controller
             }
 
             // Update order status to confirmed - waiting for delivery
-            $order->update(['status' => 'confirmed_waiting_delivery']);
+            $updateData = ['status' => 'confirmed_waiting_delivery'];
+            
+            // Add delivery preference if provided
+            if (isset($validated['use_third_party_delivery'])) {
+                $updateData['use_third_party_delivery'] = $validated['use_third_party_delivery'];
+            }
+            
+            $order->update($updateData);
 
             DB::commit();
 
