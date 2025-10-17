@@ -29,6 +29,7 @@ use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GmailApiVerificationController;
 use App\Http\Controllers\SmartEmailVerificationController;
 use App\Http\Controllers\SocialLoginController;
+use App\Http\Controllers\LalamoveController;
 
 /*
 |--------------------------------------------------------------------------
@@ -91,6 +92,10 @@ Route::get('/unit-conversions', [UnitConversionController::class, 'index']);
 Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
     ->withoutMiddleware(['auth:sanctum']);
 
+// Lalamove Webhook (public, no auth - validated by signature)
+Route::patch('/lalamove/webhook', [LalamoveController::class, 'handleWebhook'])
+    ->withoutMiddleware(['auth:sanctum']);
+
 // Simulated payment results (for testing)
 Route::get('/payments/success/{id}', fn($id) => "Payment success for order $id");
 Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id");
@@ -109,6 +114,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     
     // Seller confirmation (decreases stock)
     Route::post('/orders/{orderId}/seller/confirm', [OrderController::class, 'sellerConfirmOrder']);
+    
+    // Seller delivery method confirmation (self-delivery vs Lalamove)
+    Route::post('/orders/{orderId}/confirm-delivery-method', [OrderController::class, 'confirmDeliveryMethod']);
     
     // Update order item weight
     Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateOrderItem']);
@@ -249,6 +257,14 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::put('/harvests/{harvest}', [SellerHarvestController::class, 'update']);
     Route::delete('/harvests/{harvest}', [SellerHarvestController::class, 'destroy']);
     Route::post('/harvests/{harvest}/publish', [SellerHarvestController::class, 'publish']); // requires verification
+
+    // ✅ Lalamove Delivery endpoints
+    Route::post('/lalamove/quotation', [LalamoveController::class, 'getQuotation']);
+    Route::post('/lalamove/orders', [LalamoveController::class, 'placeOrder']);
+    Route::get('/lalamove/orders/{lalamoveOrderId}', [LalamoveController::class, 'getOrderStatus']);
+    Route::delete('/lalamove/orders/{lalamoveOrderId}', [LalamoveController::class, 'cancelOrder']);
+    Route::post('/lalamove/orders/{lalamoveOrderId}/priority-fee', [LalamoveController::class, 'addPriorityFee']);
+    Route::get('/lalamove/service-types', [LalamoveController::class, 'getServiceTypes']);
 });
 
 /*

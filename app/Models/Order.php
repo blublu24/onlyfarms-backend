@@ -14,6 +14,8 @@ class Order extends Model
         'total',
         'status',
         'delivery_address',
+        'delivery_method',
+        'use_third_party_delivery',
         'note',
         'payment_method',
         'payment_link',
@@ -22,6 +24,7 @@ class Order extends Model
 
     protected $casts = [
         'total' => 'decimal:2',
+        'use_third_party_delivery' => 'boolean',
     ];
 
     public function user(): BelongsTo
@@ -91,5 +94,13 @@ class Order extends Model
     public function hasRejectedItems(): bool
     {
         return $this->items()->where('seller_verification_status', 'seller_rejected')->exists();
+    }
+
+    /**
+     * Get the Lalamove delivery for this order.
+     */
+    public function lalamoveDelivery()
+    {
+        return $this->hasOne(LalamoveDelivery::class);
     }
 }
