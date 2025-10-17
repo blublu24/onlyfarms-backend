@@ -25,6 +25,10 @@ use App\Http\Controllers\UnitConversionController;
 use App\Http\Controllers\Seller\HarvestController as SellerHarvestController;
 use App\Http\Controllers\Admin\HarvestController as AdminHarvestController;
 use App\Http\Controllers\Admin\ProductVerificationController as AdminProductVerificationController;
+use App\Http\Controllers\EmailVerificationController;
+use App\Http\Controllers\GmailApiVerificationController;
+use App\Http\Controllers\SmartEmailVerificationController;
+use App\Http\Controllers\SocialLoginController;
 
 /*
 |--------------------------------------------------------------------------
@@ -38,6 +42,37 @@ Route::post('/admin/login', [AdminAuthController::class, 'login']);
 // Auth with rate limiting
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+
+// Email verification routes (public)
+Route::post('/send-verification-code', [EmailVerificationController::class, 'sendVerificationCode'])->middleware('throttle:5,1');
+Route::post('/verify-email', [EmailVerificationController::class, 'verifyEmail'])->middleware('throttle:10,1');
+Route::post('/resend-verification-code', [EmailVerificationController::class, 'resendVerificationCode'])->middleware('throttle:3,1');
+
+// Gmail API verification routes (public)
+Route::post('/gmail/auth-url', [GmailApiVerificationController::class, 'getGmailAuthUrl'])->middleware('throttle:5,1');
+Route::post('/gmail/callback', [GmailApiVerificationController::class, 'handleGmailCallback'])->middleware('throttle:10,1');
+Route::post('/gmail/send-verification', [GmailApiVerificationController::class, 'sendVerificationEmail'])->middleware('throttle:5,1');
+Route::post('/gmail/auto-verify', [GmailApiVerificationController::class, 'autoVerifyEmail'])->middleware('throttle:10,1');
+Route::post('/gmail/search-emails', [GmailApiVerificationController::class, 'searchVerificationEmails'])->middleware('throttle:10,1');
+Route::post('/gmail/complete-verification', [GmailApiVerificationController::class, 'completeVerification'])->middleware('throttle:5,1');
+
+// Smart Email Verification routes (fast and reliable)
+Route::post('/smart/send-verification', [SmartEmailVerificationController::class, 'sendVerificationEmail'])->middleware('throttle:5,1');
+Route::post('/smart/verify-email', [SmartEmailVerificationController::class, 'verifyEmail'])->middleware('throttle:10,1');
+Route::post('/smart/resend-verification', [SmartEmailVerificationController::class, 'resendVerificationCode'])->middleware('throttle:3,1');
+Route::post('/smart/gmail-assistance', [SmartEmailVerificationController::class, 'getGmailAssistance'])->middleware('throttle:10,1');
+Route::post('/smart/enhanced-verification', [SmartEmailVerificationController::class, 'enhancedVerification'])->middleware('throttle:5,1');
+
+// Social Login Routes (public)
+Route::get('/auth/google/redirect', [SocialLoginController::class, 'redirectToGoogle']);
+Route::get('/auth/google/callback', [SocialLoginController::class, 'handleGoogleCallback']);
+Route::get('/auth/facebook/redirect', [SocialLoginController::class, 'redirectToFacebook']);
+Route::get('/auth/facebook/callback', [SocialLoginController::class, 'handleFacebookCallback']);
+Route::get('/auth/social/urls', [SocialLoginController::class, 'getSocialUrls']);
+
+// Mobile Social Login Routes
+Route::post('/auth/google/mobile', [SocialLoginController::class, 'mobileGoogleLogin'])->middleware('throttle:10,1');
+Route::post('/auth/facebook/mobile', [SocialLoginController::class, 'mobileFacebookLogin'])->middleware('throttle:10,1');
 
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);

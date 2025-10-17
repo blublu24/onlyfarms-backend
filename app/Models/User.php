@@ -20,6 +20,9 @@ class User extends Authenticatable
         'phone_number',
         'address',
         'profile_image',
+        'social_provider', // google, facebook, google_mobile, facebook_mobile
+        'social_id', // Social provider user ID
+        'email_verified_at',
     ];
 
     protected $hidden = [
