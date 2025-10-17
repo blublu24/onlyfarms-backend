@@ -127,7 +127,7 @@ class OrderController extends Controller
                 $deliveryAddress = 'Pick-up from seller - Address to be provided by seller';
             }
 
-            return DB::transaction(function () use ($data, $user, $deliveryAddress) {
+            return DB::transaction(function () use ($data, $user, $deliveryAddress, $address) {
                 $productIds = collect($data['items'])->pluck('product_id')->all();
                 
                 // 🔒 CRITICAL: Lock products for update to prevent race conditions
@@ -355,10 +355,66 @@ class OrderController extends Controller
                     ]);
                 }
 
+                // 🚚 LALAMOVE INTEGRATION: Get quotation for delivery orders
+                $lalamoveDeliveryFee = 0;
+                $lalamoveQuotationId = null;
+                
+                if ($data['delivery_method'] === 'delivery' && $address) {
+                    try {
+                        // Get seller address from first product
+                        $firstProduct = $products->first(); // Get first product
+                        $seller = \App\Models\Seller::where('user_id', $firstProduct->seller_id)->first();
+                        
+                        if ($seller && $seller->address) {
+                            Log::info('Fetching Lalamove quotation', [
+                                'pickup_address' => $seller->address,
+                                'dropoff_address' => $address->address,
+                                'order_total' => $total
+                            ]);
+                            
+                            $lalamoveService = new \App\Services\LalamoveService();
+                            $quotation = $lalamoveService->getQuotation(
+                                $seller->address,
+                                $address->address,
+                                'MOTORCYCLE' // Default service type
+                            );
+                            
+                            if ($quotation['success']) {
+                                $lalamoveDeliveryFee = $quotation['delivery_fee'];
+                                $lalamoveQuotationId = $quotation['quotation_id'];
+                                
+                                Log::info('Lalamove quotation received', [
+                                    'quotation_id' => $lalamoveQuotationId,
+                                    'delivery_fee' => $lalamoveDeliveryFee,
+                                    'expires_at' => $quotation['expires_at'] ?? 'N/A'
+                                ]);
+                            } else {
+                                Log::warning('Lalamove quotation failed', [
+                                    'error' => $quotation['error'] ?? 'Unknown error'
+                                ]);
+                                // Continue without Lalamove - seller can choose self-delivery
+                            }
+                        } else {
+                            Log::warning('Cannot get Lalamove quotation - seller address not found', [
+                                'seller_id' => $firstProduct->seller_id,
+                                'has_seller_record' => $seller ? 'yes' : 'no',
+                                'has_seller_address' => $seller && $seller->address ? 'yes' : 'no'
+                            ]);
+                        }
+                    } catch (\Exception $e) {
+                        Log::error('Lalamove quotation exception', [
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString()
+                        ]);
+                        // Continue without Lalamove - seller can choose self-delivery
+                    }
+                }
+
                 $orderData = [
                     'user_id' => $user->id,
                     'address_id' => $data['address_id'] ?? null,
                     'total' => $total,
+                    'lalamove_delivery_fee' => $lalamoveDeliveryFee,
                     'status' => 'pending',
                     'delivery_address' => $deliveryAddress,
                     'delivery_method' => $data['delivery_method'],
@@ -369,6 +425,32 @@ class OrderController extends Controller
                 ];
 
                 $order = Order::create($orderData);
+                
+                // Create Lalamove delivery record if quotation was successful
+                if ($lalamoveQuotationId && $lalamoveDeliveryFee > 0) {
+                    try {
+                        $lalamoveDelivery = \App\Models\LalamoveDelivery::create([
+                            'order_id' => $order->id,
+                            'quotation_id' => $lalamoveQuotationId,
+                            'delivery_fee' => $lalamoveDeliveryFee,
+                            'service_type' => 'MOTORCYCLE',
+                            'pickup_address' => $seller->address,
+                            'dropoff_address' => $address->address,
+                            'status' => 'quoted' // Custom status for quotation
+                        ]);
+                        
+                        Log::info('Lalamove delivery record created', [
+                            'delivery_id' => $lalamoveDelivery->id,
+                            'quotation_id' => $lalamoveQuotationId,
+                            'delivery_fee' => $lalamoveDeliveryFee
+                        ]);
+                    } catch (\Exception $e) {
+                        Log::error('Failed to create Lalamove delivery record', [
+                            'error' => $e->getMessage(),
+                            'order_id' => $order->id
+                        ]);
+                    }
+                }
 
                 foreach ($lineItems as $li) {
                     // Debug: Log what's being saved to database
@@ -1026,13 +1108,110 @@ class OrderController extends Controller
             
             $order->update($updateData);
 
+            // If using third-party delivery, place Lalamove order
+            if (isset($validated['use_third_party_delivery']) && $validated['use_third_party_delivery']) {
+                $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
+                
+                if ($lalamoveDelivery && $lalamoveDelivery->quotation_id) {
+                    try {
+                        $lalamoveService = new \App\Services\LalamoveService();
+                        
+                        // Get seller and buyer details for Lalamove order
+                        $firstProduct = $order->items()->first()?->product;
+                        $seller = $firstProduct?->user?->seller;
+                        $buyer = $order->user;
+                        $address = $order->address;
+                        
+                        if ($seller && $buyer && $address) {
+                            $senderDetails = [
+                                'name' => $seller->shop_name ?? $seller->user->name,
+                                'phone' => $seller->phone ?? $seller->user->phone,
+                                'address' => $seller->address
+                            ];
+                            
+                            $recipientDetails = [
+                                'name' => $address->name,
+                                'phone' => $address->phone,
+                                'address' => $address->address
+                            ];
+                            
+                            // Place Lalamove order
+                            $lalamoveOrder = $lalamoveService->placeOrder(
+                                $lalamoveDelivery->quotation_id,
+                                $senderDetails,
+                                $recipientDetails
+                            );
+                            
+                            if ($lalamoveOrder['success']) {
+                                // Update Lalamove delivery record with order details
+                                $lalamoveDelivery->update([
+                                    'lalamove_order_id' => $lalamoveOrder['lalamove_order_id'],
+                                    'status' => 'assigned',
+                                    'share_link' => $lalamoveOrder['share_link'] ?? null,
+                                    'driver_id' => $lalamoveOrder['driver_id'] ?? null,
+                                    'driver_name' => $lalamoveOrder['driver_name'] ?? null,
+                                    'driver_phone' => $lalamoveOrder['driver_phone'] ?? null,
+                                    'plate_number' => $lalamoveOrder['plate_number'] ?? null
+                                ]);
+                                
+                                // Update order with Lalamove order ID
+                                $order->update(['lalamove_order_id' => $lalamoveOrder['lalamove_order_id']]);
+                                
+                                Log::info('Lalamove order placed successfully', [
+                                    'order_id' => $order->id,
+                                    'lalamove_order_id' => $lalamoveOrder['lalamove_order_id'],
+                                    'quotation_id' => $lalamoveDelivery->quotation_id
+                                ]);
+                            } else {
+                                Log::error('Failed to place Lalamove order', [
+                                    'order_id' => $order->id,
+                                    'error' => $lalamoveOrder['error'] ?? 'Unknown error'
+                                ]);
+                                
+                                // Don't fail the entire order confirmation, just log the error
+                                // The seller can still deliver manually
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        Log::error('Exception placing Lalamove order', [
+                            'order_id' => $order->id,
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString()
+                        ]);
+                        
+                        // Don't fail the entire order confirmation, just log the error
+                    }
+                } else {
+                    Log::warning('No Lalamove quotation found for order', [
+                        'order_id' => $order->id
+                    ]);
+                }
+            }
+
             DB::commit();
 
-            return response()->json([
+            $response = [
                 'message' => 'Order confirmed successfully',
                 'order_id' => $orderId,
                 'status' => 'confirmed_waiting_delivery'
-            ]);
+            ];
+            
+            // Include Lalamove order info if applicable
+            if (isset($validated['use_third_party_delivery']) && $validated['use_third_party_delivery']) {
+                $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
+                if ($lalamoveDelivery && $lalamoveDelivery->lalamove_order_id) {
+                    $response['lalamove_order'] = [
+                        'lalamove_order_id' => $lalamoveDelivery->lalamove_order_id,
+                        'status' => $lalamoveDelivery->status,
+                        'share_link' => $lalamoveDelivery->share_link,
+                        'driver_name' => $lalamoveDelivery->driver_name,
+                        'driver_phone' => $lalamoveDelivery->driver_phone,
+                        'plate_number' => $lalamoveDelivery->plate_number
+                    ];
+                }
+            }
+            
+            return response()->json($response);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -1180,17 +1359,197 @@ class OrderController extends Controller
                 'payment_method' => $request->payment_method
             ]);
 
+            // 🚚 LALAMOVE INTEGRATION: Place Lalamove order if seller chose third-party delivery
+            if ($order->use_third_party_delivery) {
+                try {
+                    $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
+                    
+                    if ($lalamoveDelivery && $lalamoveDelivery->quotation_id) {
+                        Log::info('Placing Lalamove order after seller confirmation', [
+                            'order_id' => $order->id,
+                            'quotation_id' => $lalamoveDelivery->quotation_id
+                        ]);
+
+                        // Get seller details
+                        $seller = \App\Models\Seller::where('user_id', $user->id)->first();
+                        if (!$seller) {
+                            throw new \Exception('Seller profile not found');
+                        }
+
+                        // Get buyer details
+                        $buyer = $order->user;
+                        $address = $order->address;
+
+                        // Prepare items for Lalamove
+                        $items = $order->items->map(function ($item) {
+                            return [
+                                'quantity' => $item->quantity,
+                                'description' => $item->product->product_name
+                            ];
+                        })->toArray();
+
+                        $lalamoveService = new \App\Services\LalamoveService();
+                        $lalamoveOrder = $lalamoveService->placeOrder(
+                            $lalamoveDelivery->quotation_id,
+                            $seller->business_name ?? $user->name,
+                            $seller->phone ?? $user->phone ?? '+639000000000',
+                            $lalamoveDelivery->pickup_address,
+                            $buyer->name,
+                            $address->phone ?? $buyer->phone ?? '+639000000000',
+                            $lalamoveDelivery->dropoff_address,
+                            $order->note ?? 'Farm produce delivery',
+                            'MOTORCYCLE',
+                            $items
+                        );
+
+                        if (isset($lalamoveOrder['data']['id'])) {
+                            // Update the LalamoveDelivery record with order details
+                            $lalamoveDelivery->update([
+                                'lalamove_order_id' => $lalamoveOrder['data']['id'],
+                                'status' => 'pending',
+                                'share_link' => $lalamoveOrder['data']['shareLink'] ?? null
+                            ]);
+
+                            // Update the main order with Lalamove order ID
+                            $order->update([
+                                'lalamove_order_id' => $lalamoveOrder['data']['id']
+                            ]);
+
+                            Log::info('Lalamove order placed successfully', [
+                                'order_id' => $order->id,
+                                'lalamove_order_id' => $lalamoveOrder['data']['id'],
+                                'status' => $lalamoveOrder['data']['status']
+                            ]);
+                        } else {
+                            Log::error('Lalamove order placement failed - no order ID in response', [
+                                'order_id' => $order->id,
+                                'response' => $lalamoveOrder
+                            ]);
+                            // Don't fail the entire order confirmation, just log the error
+                        }
+                    } else {
+                        Log::warning('No Lalamove delivery record found for order', [
+                            'order_id' => $order->id,
+                            'use_third_party_delivery' => $order->use_third_party_delivery
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Failed to place Lalamove order after seller confirmation', [
+                        'order_id' => $order->id,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                    // Don't fail the entire order confirmation, just log the error
+                }
+            }
+
             DB::commit();
 
             return response()->json([
                 'message' => 'Order confirmed successfully',
                 'order_id' => $orderId,
                 'status' => 'confirmed',
-                'final_total' => $finalTotal
+                'final_total' => $finalTotal,
+                'lalamove_order_placed' => $order->use_third_party_delivery && $order->lalamove_order_id ? true : false
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Seller: Confirm delivery method (self-delivery or Lalamove)
+     */
+    public function confirmDeliveryMethod(Request $request, $orderId)
+    {
+        try {
+            $validated = $request->validate([
+                'use_third_party_delivery' => 'required|boolean'
+            ]);
+
+            $user = $request->user();
+            if (!$user->is_seller) {
+                return response()->json(['error' => 'Only sellers can confirm delivery method'], 403);
+            }
+
+            $order = Order::findOrFail($orderId);
+            
+            // Verify this is the seller's order
+            $firstItem = $order->items()->first();
+            if (!$firstItem || $firstItem->product->seller_id !== $user->id) {
+                return response()->json(['error' => 'Unauthorized access to order'], 403);
+            }
+
+            // Check if order is in correct status
+            if ($order->status !== 'for_seller_verification') {
+                return response()->json(['error' => 'Order is not in correct status for delivery confirmation'], 400);
+            }
+
+            DB::beginTransaction();
+
+            $useThirdPartyDelivery = $validated['use_third_party_delivery'];
+            
+            if ($useThirdPartyDelivery) {
+                // Check if Lalamove quotation exists
+                $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
+                
+                if (!$lalamoveDelivery || !$lalamoveDelivery->quotation_id) {
+                    DB::rollBack();
+                    return response()->json(['error' => 'No Lalamove quotation found for this order'], 400);
+                }
+
+                // Check if quotation is still valid (5 minutes)
+                $quotationAge = now()->diffInMinutes($lalamoveDelivery->created_at);
+                if ($quotationAge > 5) {
+                    DB::rollBack();
+                    return response()->json(['error' => 'Lalamove quotation has expired. Please refresh the order.'], 400);
+                }
+
+                Log::info('Seller confirmed Lalamove delivery', [
+                    'order_id' => $order->id,
+                    'quotation_id' => $lalamoveDelivery->quotation_id,
+                    'delivery_fee' => $lalamoveDelivery->delivery_fee
+                ]);
+
+                // Update order to use third-party delivery
+                $order->update([
+                    'use_third_party_delivery' => true,
+                    'status' => 'confirmed_waiting_delivery'
+                ]);
+
+                // Note: The actual Lalamove order will be placed when the seller confirms the order
+                // This just marks the preference. The order placement happens in sellerConfirmOrder method.
+
+            } else {
+                Log::info('Seller confirmed self-delivery', [
+                    'order_id' => $order->id
+                ]);
+
+                // Update order to use self-delivery
+                $order->update([
+                    'use_third_party_delivery' => false,
+                    'status' => 'confirmed_waiting_delivery'
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Delivery method confirmed successfully',
+                'order_id' => $order->id,
+                'use_third_party_delivery' => $useThirdPartyDelivery,
+                'status' => 'confirmed_waiting_delivery'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Confirm delivery method error', [
+                'order_id' => $orderId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json(['error' => $e->getMessage()], 400);
         }
     }

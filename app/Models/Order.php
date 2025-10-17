@@ -95,4 +95,12 @@ class Order extends Model
     {
         return $this->items()->where('seller_verification_status', 'seller_rejected')->exists();
     }
+
+    /**
+     * Get the Lalamove delivery for this order.
+     */
+    public function lalamoveDelivery()
+    {
+        return $this->hasOne(LalamoveDelivery::class);
+    }
 }

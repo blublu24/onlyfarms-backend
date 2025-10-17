@@ -23,6 +23,7 @@ return [
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect_uri' => env('GOOGLE_REDIRECT_URI'),
         'credentials_path' => env('GOOGLE_CREDENTIALS_PATH', storage_path('app/google-credentials.json')),
+        'maps_api_key' => env('GOOGLE_MAPS_API_KEY'),
     ],
 
     'resend' => [
@@ -40,6 +41,17 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+    ],
+
+    'lalamove' => [
+        'api_key' => env('LALAMOVE_API_KEY'),
+        'api_secret' => env('LALAMOVE_API_SECRET'),
+        'environment' => env('LALAMOVE_ENVIRONMENT', 'sandbox'),
+        'market' => env('LALAMOVE_MARKET', 'PH'),
+        'webhook_url' => env('LALAMOVE_WEBHOOK_URL'),
+        'base_url' => env('LALAMOVE_ENVIRONMENT', 'sandbox') === 'production'
+            ? 'https://rest.lalamove.com/v3'
+            : 'https://rest.sandbox.lalamove.com/v3',
     ],
 
 ];
