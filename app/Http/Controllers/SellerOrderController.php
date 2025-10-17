@@ -21,28 +21,36 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Fetch orders containing this seller's products
-        $orders = Order::with(['items' => function ($q) use ($user) {
-            $q->where('seller_id', $user->id);
+        // Get the actual Seller ID (not User ID) for this user
+        $seller = $user->seller;
+        if (!$seller) {
+            return response()->json(['message' => 'Seller profile not found'], 404);
+        }
+
+        // Fetch orders containing this seller's products using the correct Seller ID
+        $orders = Order::with(['items' => function ($q) use ($seller) {
+            $q->where('seller_id', $seller->id);
         }])
-            ->whereHas('items', function ($q) use ($user) {
-                $q->where('seller_id', $user->id);
+            ->whereHas('items', function ($q) use ($seller) {
+                $q->where('seller_id', $seller->id);
             })
             ->orderBy('created_at', 'desc')
             ->get();
 
         // Debug logging
         Log::info('Seller orders query', [
-            'seller_id' => $user->id,
+            'user_id' => $user->id,
+            'seller_id' => $seller->id,
             'user_is_seller' => $user->is_seller,
             'orders_count' => $orders->count(),
             'orders' => $orders->toArray()
         ]);
 
         // Also check what order_items exist for this seller
-        $orderItems = \App\Models\OrderItem::where('seller_id', $user->id)->get();
+        $orderItems = \App\Models\OrderItem::where('seller_id', $seller->id)->get();
         Log::info('Order items for seller', [
-            'seller_id' => $user->id,
+            'user_id' => $user->id,
+            'seller_id' => $seller->id,
             'order_items_count' => $orderItems->count(),
             'order_items' => $orderItems->toArray()
         ]);
@@ -51,6 +59,7 @@ class SellerOrderController extends Controller
         $userProducts = \App\Models\Product::where('seller_id', $user->id)->get();
         Log::info('User products', [
             'user_id' => $user->id,
+            'seller_id' => $seller->id,
             'products_count' => $userProducts->count(),
             'products' => $userProducts->pluck('product_id', 'product_name')->toArray()
         ]);
@@ -68,7 +77,8 @@ class SellerOrderController extends Controller
             'message' => 'Seller orders fetched successfully',
             'data' => $orders->toArray(),
             'debug' => [
-                'seller_id' => $user->id,
+                'user_id' => $user->id,
+                'seller_id' => $seller->id,
                 'orders_count' => $orders->count(),
                 'order_items_count' => $orderItems->count(),
                 'products_count' => $userProducts->count()
@@ -87,8 +97,14 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $order = Order::with(['items' => function ($q) use ($user) {
-            $q->where('seller_id', $user->id);
+        // Get the actual Seller ID (not User ID) for this user
+        $seller = $user->seller;
+        if (!$seller) {
+            return response()->json(['message' => 'Seller profile not found'], 404);
+        }
+
+        $order = Order::with(['items' => function ($q) use ($seller) {
+            $q->where('seller_id', $seller->id);
         }, 'user', 'address'])->findOrFail($orderId);
 
         // Check if seller actually has items in this order
@@ -105,10 +121,21 @@ class SellerOrderController extends Controller
     public function updateStatus(Request $request, $orderId)
     {
         $user = $request->user();
+        
+        if (!$user->is_seller) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Get the actual Seller ID (not User ID) for this user
+        $seller = $user->seller;
+        if (!$seller) {
+            return response()->json(['message' => 'Seller profile not found'], 404);
+        }
+
         $order = Order::with('items')->findOrFail($orderId);
 
         // Ensure the order has at least one item from this seller
-        $item = $order->items()->where('seller_id', $user->id)->first();
+        $item = $order->items()->where('seller_id', $seller->id)->first();
         if (!$item) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
