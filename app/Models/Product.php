@@ -242,7 +242,63 @@ class Product extends Model
     public function getValidUnits(): array
     {
         $vegetableSlug = $this->getVegetableSlug();
-        return \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
+        $units = \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
+        
+        // If no units from database, return vegetable-specific default units
+        if (empty($units)) {
+            return $this->getVegetableSpecificUnits($vegetableSlug);
+        }
+        
+        return $units;
+    }
+
+    /**
+     * Get vegetable-specific available units
+     */
+    private function getVegetableSpecificUnits(string $vegetableSlug): array
+    {
+        $vegetableUnits = [
+            // Eggplant (talong) - Available: kg, sack, small_sack, tali
+            'talong' => ['kg', 'sack', 'small_sack', 'tali'],
+            
+            // Tomato (kamatis) - Available: kg, sack, small_sack, pieces
+            'kamatis' => ['kg', 'sack', 'small_sack', 'pieces'],
+            
+            // Onion (sibuyas) - Available: kg, sack, small_sack, packet
+            'sibuyas' => ['kg', 'sack', 'small_sack', 'packet'],
+            
+            // Garlic (bawang) - Available: kg, sack, small_sack, tali, packet
+            'bawang' => ['kg', 'sack', 'small_sack', 'tali', 'packet'],
+            
+            // Squash (kalabasa) - Available: kg, sack, small_sack, pieces
+            'kalabasa' => ['kg', 'sack', 'small_sack', 'pieces'],
+            
+            // Okra - Available: kg, sack, small_sack, tali
+            'okra' => ['kg', 'sack', 'small_sack', 'tali'],
+            
+            // String beans (sitaw) - Available: kg, sack, small_sack, tali
+            'sitaw' => ['kg', 'sack', 'small_sack', 'tali'],
+            
+            // Water spinach (kangkong) - Available: kg, sack, small_sack, tali
+            'kangkong' => ['kg', 'sack', 'small_sack', 'tali'],
+            
+            // Pechay - Available: kg, sack, small_sack, tali
+            'pechay' => ['kg', 'sack', 'small_sack', 'tali'],
+            
+            // Cabbage (repolyo) - Available: kg, sack, small_sack, pieces
+            'repolyo' => ['kg', 'sack', 'small_sack', 'pieces'],
+            
+            // Carrot - Available: kg, sack, small_sack, packet
+            'carrots' => ['kg', 'sack', 'small_sack', 'packet'],
+            
+            // Sayote - Available: kg, sack, small_sack, pieces
+            'sayote' => ['kg', 'sack', 'small_sack', 'pieces'],
+            
+            // Potato (patatas) - Available: kg, sack, small_sack, pieces
+            'patatas' => ['kg', 'sack', 'small_sack', 'pieces'],
+        ];
+        
+        return $vegetableUnits[$vegetableSlug] ?? ['kg', 'sack', 'small_sack']; // Default fallback
     }
 
     /**

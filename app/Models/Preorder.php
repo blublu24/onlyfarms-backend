@@ -15,6 +15,18 @@ class Preorder extends Model
         'seller_id',
         'quantity',
         'expected_availability_date',
+        
+        // New unit fields
+        'variation_type',
+        'variation_name',
+        'unit_key',
+        'unit_weight_kg',
+        'unit_price',
+        'status',
+        'harvest_date',
+        'reserved_qty',
+        'notes',
+        'version',
     ];
 
     /* ==============================
@@ -43,5 +55,166 @@ class Preorder extends Model
     public function seller()
     {
         return $this->belongsTo(User::class, 'seller_id', 'id');
+    }
+
+    /**
+     * A preorder can be fulfilled into an order.
+     */
+    public function fulfilledOrder()
+    {
+        return $this->hasOne(Order::class, 'preorder_id', 'id');
+    }
+
+    /* ==============================
+     | Attribute Casting
+     ============================== */
+
+    protected $casts = [
+        'expected_availability_date' => 'date',
+        'harvest_date' => 'date',
+        'unit_weight_kg' => 'decimal:4',
+        'unit_price' => 'decimal:2',
+        'reserved_qty' => 'decimal:2',
+        'version' => 'integer',
+    ];
+
+    /* ==============================
+     | Scopes
+     ============================== */
+
+    /**
+     * Scope: Filter by variation type
+     */
+    public function scopeByVariationType($query, $variationType)
+    {
+        return $query->where('variation_type', $variationType);
+    }
+
+    /**
+     * Scope: Filter by status
+     */
+    public function scopeByStatus($query, $status)
+    {
+        return $query->where('status', $status);
+    }
+
+    /**
+     * Scope: Filter by unit key
+     */
+    public function scopeByUnitKey($query, $unitKey)
+    {
+        return $query->where('unit_key', $unitKey);
+    }
+
+    /**
+     * Scope: Filter by harvest date range
+     */
+    public function scopeByHarvestDateRange($query, $startDate, $endDate = null)
+    {
+        $query->where('harvest_date', '>=', $startDate);
+        if ($endDate) {
+            $query->where('harvest_date', '<=', $endDate);
+        }
+        return $query;
+    }
+
+    /* ==============================
+     | Helper Methods
+     ============================== */
+
+    /**
+     * Calculate subtotal based on quantity and unit price
+     */
+    public function getSubtotalAttribute(): float
+    {
+        return $this->quantity * $this->unit_price;
+    }
+
+    /**
+     * Get total weight in kg for this preorder
+     */
+    public function getTotalWeightKgAttribute(): float
+    {
+        return $this->quantity * $this->unit_weight_kg;
+    }
+
+    /**
+     * Convert quantity to base units (kg) using unit weight
+     */
+    public function getQuantityInKg(): float
+    {
+        return $this->quantity * $this->unit_weight_kg;
+    }
+
+    /**
+     * Check if preorder can be cancelled
+     */
+    public function canBeCancelled(): bool
+    {
+        return in_array($this->status, ['pending', 'confirmed']) && 
+               (!$this->harvest_date || $this->harvest_date > now());
+    }
+
+    /**
+     * Check if preorder can be fulfilled
+     */
+    public function canBeFulfilled(): bool
+    {
+        return $this->status === 'confirmed' && $this->harvest_date;
+    }
+
+    /**
+     * Get unit display name with weight info
+     */
+    public function getUnitDisplayNameAttribute(): string
+    {
+        $unitNames = [
+            'kg' => 'Kilogram',
+            'sack' => 'Sack',
+            'small_sack' => 'Small Sack',
+            'tali' => 'Tali',
+            'pieces' => 'Pieces',
+        ];
+
+        $name = $unitNames[$this->unit_key] ?? ucfirst($this->unit_key);
+        
+        if ($this->unit_weight_kg) {
+            $name .= " ({$this->unit_weight_kg}kg)";
+        }
+        
+        return $name;
+    }
+
+    /**
+     * Get variation display name
+     */
+    public function getVariationDisplayNameAttribute(): string
+    {
+        if ($this->variation_name) {
+            return $this->variation_name;
+        }
+
+        $variationNames = [
+            'premium' => 'Premium',
+            'type_a' => 'Type A',
+            'type_b' => 'Type B',
+            'regular' => 'Regular',
+        ];
+
+        return $variationNames[$this->variation_type] ?? ucfirst($this->variation_type);
+    }
+
+    /**
+     * Update status with version checking for optimistic locking
+     */
+    public function updateStatus($newStatus, $expectedVersion = null)
+    {
+        if ($expectedVersion && $this->version !== $expectedVersion) {
+            throw new \Exception('Preorder has been modified by another process');
+        }
+
+        $this->status = $newStatus;
+        $this->version++;
+        return $this->save();
     }
 }

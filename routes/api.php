@@ -42,6 +42,7 @@ Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/products/{id}/preorder-eligibility', [PreorderController::class, 'checkEligibility']);
 Route::get('/sellers', [SellerController::class, 'index']);
 Route::get('/sellers/{id}', [SellerController::class, 'show']);
 
@@ -191,6 +192,12 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     // ✅ Preorders (protected)
     Route::get('/preorders', [PreorderController::class, 'index']);
     Route::post('/preorders', [PreorderController::class, 'store']);
+    Route::get('/preorders/consumer', [PreorderController::class, 'consumerPreorders']);
+    Route::get('/preorders/seller', [PreorderController::class, 'sellerPreorders']);
+    Route::get('/preorders/{id}', [PreorderController::class, 'show']);
+    Route::put('/preorders/{id}', [PreorderController::class, 'update']);
+    Route::post('/preorders/{id}/fulfill', [PreorderController::class, 'fulfill']);
+    Route::post('/preorders/{id}/cancel', [PreorderController::class, 'cancel']);
 
     //Messaging (Chat)
     Route::post('/conversations', [ChatController::class, 'createConversation']);

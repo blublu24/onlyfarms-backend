@@ -1,0 +1,627 @@
+{
+	"info": {
+		"_postman_id": "preorder-system-tests",
+		"name": "Preorder System API Tests",
+		"description": "Comprehensive API tests for the preorder system with unit-specific functionality",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login Consumer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"consumer@example.com\",\n    \"password\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"login"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('consumer_token', response.token);",
+									"    pm.environment.set('consumer_id', response.user.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Login Seller",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"seller@example.com\",\n    \"password\": \"password\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"login"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('seller_token', response.token);",
+									"    pm.environment.set('seller_id', response.user.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Preorder Eligibility",
+			"item": [
+				{
+					"name": "Check Product Eligibility - Eligible",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/products/{{eligible_product_id}}/preorder-eligibility",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"products",
+								"{{eligible_product_id}}",
+								"preorder-eligibility"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Product is eligible for preorders', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.eligible).to.be.true;",
+									"});",
+									"",
+									"pm.test('Response contains variations', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.variations).to.be.an('array');",
+									"    pm.expect(response.variations.length).to.be.greaterThan(0);",
+									"});",
+									"",
+									"pm.test('Variations contain unit options', function () {",
+									"    const response = pm.response.json();",
+									"    if (response.variations.length > 0) {",
+									"        pm.expect(response.variations[0].units).to.be.an('array');",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Check Product Eligibility - Not Eligible",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/products/{{regular_product_id}}/preorder-eligibility",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"products",
+								"{{regular_product_id}}",
+								"preorder-eligibility"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Product is not eligible for preorders', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.eligible).to.be.false;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Preorder Management",
+			"item": [
+				{
+					"name": "Create Preorder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{consumer_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"consumer_id\": {{consumer_id}},\n    \"product_id\": {{eligible_product_id}},\n    \"seller_id\": {{seller_id}},\n    \"quantity\": 2,\n    \"expected_availability_date\": \"2025-02-15\",\n    \"variation_type\": \"premium\",\n    \"variation_name\": \"Premium\",\n    \"unit_key\": \"sack\",\n    \"unit_price\": 150.00,\n    \"unit_weight_kg\": 25.0\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/preorders",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 201', function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test('Preorder created successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data).to.have.property('id');",
+									"    pm.environment.set('preorder_id', response.data.id);",
+									"});",
+									"",
+									"pm.test('Unit data saved correctly', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.variation_type).to.eql('premium');",
+									"    pm.expect(response.data.unit_key).to.eql('sack');",
+									"    pm.expect(response.data.unit_price).to.eql(150.00);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Get Preorder Details",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{consumer_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/preorders/{{preorder_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders",
+								"{{preorder_id}}"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Preorder details retrieved', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data).to.have.property('id');",
+									"    pm.expect(response.data).to.have.property('product');",
+									"    pm.expect(response.data).to.have.property('consumer');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Update Preorder Harvest Date",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{seller_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"harvest_date\": \"2025-02-20\",\n    \"notes\": \"Updated harvest date due to weather conditions\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/preorders/{{preorder_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders",
+								"{{preorder_id}}"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Harvest date updated', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data.harvest_date).to.eql('2025-02-20');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Get Consumer Preorders",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{consumer_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/preorders/consumer",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders",
+								"consumer"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Consumer preorders retrieved', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Get Seller Preorders",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{seller_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/preorders/seller",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders",
+								"seller"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Seller preorders retrieved', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.data).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Preorder Actions",
+			"item": [
+				{
+					"name": "Fulfill Preorder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{seller_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/preorders/{{preorder_id}}/fulfill",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders",
+								"{{preorder_id}}",
+								"fulfill"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Order created from preorder', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.order).to.have.property('id');",
+									"    pm.environment.set('order_id', response.order.id);",
+									"});",
+									"",
+									"pm.test('Preorder status updated to fulfilled', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.preorder.status).to.eql('fulfilled');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Cancel Preorder",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{consumer_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/preorders/{{preorder_id}}/cancel",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders",
+								"{{preorder_id}}",
+								"cancel"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Preorder cancelled successfully', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.preorder.status).to.eql('cancelled');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Error Handling",
+			"item": [
+				{
+					"name": "Unauthorized Access",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/preorders/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders",
+								"1"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 401', function () {",
+									"    pm.response.to.have.status(401);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				},
+				{
+					"name": "Invalid Preorder Creation",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{consumer_token}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"consumer_id\": {{consumer_id}},\n    \"product_id\": 999999,\n    \"seller_id\": {{seller_id}},\n    \"quantity\": 0,\n    \"expected_availability_date\": \"2025-02-15\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/preorders",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"preorders"
+							]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 422', function () {",
+									"    pm.response.to.have.status(422);",
+									"});",
+									"",
+									"pm.test('Validation errors returned', function () {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('errors');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					]
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000/api",
+			"type": "string"
+		},
+		{
+			"key": "eligible_product_id",
+			"value": "2",
+			"type": "string"
+		},
+		{
+			"key": "regular_product_id",
+			"value": "1",
+			"type": "string"
+		}
+	]
+}
