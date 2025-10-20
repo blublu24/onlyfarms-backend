@@ -80,6 +80,8 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
         'redirect' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
     'lalamove' => [
         'api_key' => env('LALAMOVE_API_KEY'),
         'api_secret' => env('LALAMOVE_API_SECRET'),

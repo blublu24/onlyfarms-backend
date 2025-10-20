@@ -12,10 +12,19 @@ class SellerController extends Controller
     public function becomeSeller(Request $request)
     {
         $request->validate([
-            'shop_name'       => 'required|string|max:255',
-            'address'         => 'nullable|string|max:255',
-            'phone_number'    => 'nullable|string|max:50',
-            'business_permit' => 'nullable|string|max:255',
+            'shop_name'         => 'required|string|max:255',
+            'address'           => 'required|string|max:500',
+            'phone_number'      => 'required|string|max:50',
+            'email'             => 'required|email|max:255',
+            'registered_name'   => 'required|string|max:255',
+            'business_name'     => 'required|string|max:255',
+            'tin'               => 'required|string|max:50',
+            'vat_status'        => 'required|in:vat_registered,non_vat_registered',
+            'business_email'    => 'required|email|max:255',
+            'business_phone'    => 'required|string|max:50',
+            'government_id_type' => 'required|string|max:100',
+            'government_id_front' => 'required|string',
+            'government_id_back' => 'nullable|string',
         ]);
 
         $user = Auth::user();
@@ -27,21 +36,36 @@ class SellerController extends Controller
             ], 400);
         }
 
-        // Create Seller profile
+        // Create Seller profile with all required fields
         $seller = Seller::create([
-            'user_id'        => $user->id,
-            'shop_name'      => $request->shop_name,
-            'address'        => $request->address,
-            'phone_number'   => $request->phone_number,
-            'business_permit'=> $request->business_permit,
+            'user_id'            => $user->id,
+            'shop_name'          => $request->shop_name,
+            'address'            => $request->address,
+            'phone_number'       => $request->phone_number,
+            'email'              => $request->email,
+            'registered_name'    => $request->registered_name,
+            'business_name'      => $request->business_name,
+            'tin'                => $request->tin,
+            'vat_status'         => $request->vat_status,
+            'business_email'     => $request->business_email,
+            'business_phone'     => $request->business_phone,
+            'government_id_type' => $request->government_id_type,
+            'government_id_front' => $request->government_id_front,
+            'government_id_back' => $request->government_id_back,
+            'status'             => 'pending', // Admin approval required
         ]);
 
-        // Mark user as seller
-        $user->is_seller = true;
+        // Update user email and phone if provided
+        if ($request->email) {
+            $user->email = $request->email;
+        }
+        if ($request->phone_number) {
+            $user->phone_number = $request->phone_number;
+        }
         $user->save();
 
         return response()->json([
-            'message' => 'You are now a seller!',
+            'message' => 'Seller registration submitted successfully! Your application is pending admin approval.',
             'user'    => $user->load('seller')
         ], 201);
     }

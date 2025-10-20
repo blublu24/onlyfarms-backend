@@ -5,12 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Address;
-use App\Models\OrderItem;
-use App\Models\UnitConversion;
-use App\Events\ProductStockUpdated;
-use App\Events\ProductSalesUpdated;
-use App\Events\NewOrderNotification;
-use App\Events\OrderDeliveredNotification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -44,21 +38,9 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $orderWithRelations = $order->load(['items.seller', 'user', 'address']);
-        
-        // Debug: Log seller information
-        foreach ($orderWithRelations->items as $item) {
-            Log::info('Order item seller debug:', [
-                'item_id' => $item->id,
-                'seller_id' => $item->seller_id,
-                'seller_loaded' => $item->seller ? 'yes' : 'no',
-                'seller_name' => $item->seller->shop_name ?? 'null',
-            ]);
-        }
-        
         return response()->json([
             'message' => 'Order fetched successfully',
-            'data' => $orderWithRelations
+            'data' => $order->load('items')
         ]);
     }
 
@@ -69,65 +51,27 @@ class OrderController extends Controller
     {
         try {
             Log::info('Order creation started', ['user_id' => $request->user()->id]);
-            Log::info('Raw request data:', $request->all());
-            Log::info('🚀 BACKEND CHANGES ARE ACTIVE - Order creation with new logic!');
-            
-            // Debug: Log each item being processed
-            foreach ($request->input('items', []) as $index => $item) {
-                Log::info("Processing item {$index}:", [
-                    'product_id' => $item['product_id'] ?? 'missing',
-                    'quantity' => $item['quantity'] ?? 'missing',
-                    'unit' => $item['unit'] ?? 'missing',
-                    'variation_type' => $item['variation_type'] ?? 'missing',
-                    'variation_name' => $item['variation_name'] ?? 'missing',
-                    'variation_price' => $item['variation_price'] ?? 'missing',
-                ]);
-            }
 
             $data = $request->validate([
                 'items' => 'required|array|min:1',
                 'items.*.product_id' => 'required|integer|exists:products,product_id',
                 'items.*.quantity' => 'required|integer|min:1|max:999',
-                'items.*.unit' => 'required|string|in:kg,sack,small_sack,packet,tali,piece,bunches',
-                'items.*.variation_type' => 'nullable|string|in:premium,typeA,typeB,typeC',
-                'items.*.variation_name' => 'nullable|string',
-                'items.*.variation_price' => 'nullable|numeric|min:0',
-                'address_id' => 'nullable|exists:addresses,address_id',
+                'items.*.unit' => 'required|string|in:kg,bunches',
+                'address_id' => 'required|exists:addresses,address_id',
                 'notes' => 'nullable|string|max:500',
                 'payment_method' => 'nullable|string|in:cod,gcash,card',
-                'delivery_method' => 'required|string|in:pickup,delivery',
             ]);
-
-            Log::info('Validated data:', $data);
-
-            // Additional validation: address_id is required for delivery orders
-            if ($data['delivery_method'] === 'delivery' && empty($data['address_id'])) {
-                return response()->json([
-                    'message' => 'Delivery address is required for delivery orders',
-                    'error' => 'Address is required when delivery method is "delivery"'
-                ], 422);
-            }
 
             $user = $request->user();
 
-            // Get address only if delivery method is delivery
-            $address = null;
-            if ($data['delivery_method'] === 'delivery' && !empty($data['address_id'])) {
-                $address = Address::where('address_id', $data['address_id'])
-                    ->where('user_id', $user->id)
-                    ->firstOrFail();
-            }
+            // Ensure address belongs to this user
+            $address = Address::where('address_id', $data['address_id'])
+                ->where('user_id', $user->id)
+                ->firstOrFail();
 
-            // Construct delivery address string
-            $deliveryAddress = '';
-            if ($address) {
-                $deliveryAddress = $address->name . ', ' . $address->phone . ', ' . $address->address;
-            } else {
-                // For pickup orders, set a default message
-                $deliveryAddress = 'Pick-up from seller - Address to be provided by seller';
-            }
+            $deliveryAddress = $address->name . ', ' . $address->phone . ', ' . $address->address;
 
-            return DB::transaction(function () use ($data, $user, $deliveryAddress, $address) {
+            return DB::transaction(function () use ($data, $user, $deliveryAddress) {
                 $productIds = collect($data['items'])->pluck('product_id')->all();
                 
                 // 🔒 CRITICAL: Lock products for update to prevent race conditions
@@ -148,21 +92,10 @@ class OrderController extends Controller
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
                     
-                    // Calculate required stock in kg
-                    $requiredStockKg = 0;
-                    if ($unit === 'kg') {
-                        $requiredStockKg = $qty; // Direct kg quantity
-                    } else {
-                        // Get vegetable slug and calculate weight from unit conversion
-                        $vegetableSlug = $product->getVegetableSlug();
-                        $standardWeightPerUnit = \App\Models\UnitConversion::getStandardWeight($vegetableSlug, $unit);
-                        $requiredStockKg = $qty * $standardWeightPerUnit;
-                    }
-                    
                     // Check stock availability with fresh locked data
-                    $currentStock = (float) $product->stock_kg;
-                    if ($currentStock < $requiredStockKg) {
-                        abort(422, "Insufficient stock for product '{$product->product_name}'. Available: {$currentStock}kg, Requested: {$requiredStockKg}kg");
+                    $currentStock = (float) $product->stocks;
+                    if ($currentStock < $qty) {
+                        abort(422, "Insufficient stock for product '{$product->product_name}'. Available: {$currentStock}kg, Requested: {$qty}kg");
                     }
                 }
 
@@ -172,128 +105,17 @@ class OrderController extends Controller
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
                     
-                    // Calculate estimated weight based on unit
-                    $estimatedWeightKg = 0;
-                    $variationPricePerKg = null;
-                    
-                    if ($unit === 'kg') {
-                        // For kg units, if we have variation_price, calculate weight from total price
-                        if (isset($row['variation_price']) && $row['variation_price']) {
-                            // First determine the price per kg for this variation
-                            $variationPricePerKg = $product->price_per_kg; // Default to base price
-                            
-                            // If it's a variation, use the variation-specific price
-                            if (isset($row['variation_type'])) {
-                                switch ($row['variation_type']) {
-                                    case 'premium':
-                                        $variationPricePerKg = $product->premium_price_per_kg ?? $product->price_per_kg;
-                                        break;
-                                    case 'typeA':
-                                        $variationPricePerKg = $product->type_a_price_per_kg ?? $product->price_per_kg;
-                                        break;
-                                    case 'typeB':
-                                        $variationPricePerKg = $product->type_b_price_per_kg ?? $product->price_per_kg;
-                                        break;
-                                }
-                            }
-                            
-                            // Calculate weight from total price and variation price per kg
-                            if ($variationPricePerKg > 0) {
-                                $estimatedWeightKg = $row['variation_price'] / $variationPricePerKg;
-                            } else {
-                                $estimatedWeightKg = $qty; // Fallback to quantity
-                            }
-                        } else {
-                            $estimatedWeightKg = $qty; // Direct kg quantity
-                        }
-                    } else {
-                        // Get vegetable slug and calculate weight from unit conversion
-                        $vegetableSlug = $product->getVegetableSlug();
-                        $standardWeightPerUnit = \App\Models\UnitConversion::getStandardWeight($vegetableSlug, $unit);
-                        
-                        // If unit conversion returns 0, use fallback weights
-                        if ($standardWeightPerUnit <= 0) {
-                            // Fallback weights for common units
-                            $fallbackWeights = [
-                                'packet' => 0.25,  // 250g per packet
-                                'tali' => 0.3,     // 300g per tali
-                                'piece' => 0.2,    // 200g per piece
-                                'sack' => 15,      // 15kg per sack
-                                'small_sack' => 10, // 10kg per small sack
-                            ];
-                            $standardWeightPerUnit = $fallbackWeights[$unit] ?? 0.1; // Default 100g
-                        }
-                        
-                        $estimatedWeightKg = $qty * $standardWeightPerUnit;
-                    }
-                    
-                    // Debug: Log weight calculation
-                    Log::info('Weight calculation:', [
-                        'product_name' => $product->product_name,
-                        'unit' => $unit,
-                        'quantity' => $qty,
-                        'estimated_weight_kg' => $estimatedWeightKg,
-                        'variation_type' => $row['variation_type'] ?? 'none',
-                        'variation_price' => $row['variation_price'] ?? 'none',
-                        'variation_price_per_kg' => $variationPricePerKg ?? 'N/A',
-                        'vegetable_slug' => $vegetableSlug ?? 'N/A',
-                        'standard_weight_per_unit' => $standardWeightPerUnit ?? 'N/A',
-                    ]);
-                    
-                    // Determine price based on unit - use variation price if provided, otherwise use product price
-                    $pricePerKg = $product->price_per_kg; // Default to product's base price per kg
+                    // Determine price based on unit
                     $unitPrice = 0;
-                    
-                    // If variation_price is provided, it's the total price for the quantity
-                    if (isset($row['variation_price']) && $row['variation_price']) {
-                        $unitPrice = (float) $row['variation_price']; // This is the total price
-                        // Calculate the actual price per kg from the total price
-                        $pricePerKg = $estimatedWeightKg > 0 ? $unitPrice / $estimatedWeightKg : $product->price_per_kg;
-                    } else if ($pricePerKg && $product->available_units) {
-                        $availableUnits = is_string($product->available_units) 
-                            ? json_decode($product->available_units, true) 
-                            : $product->available_units;
-                        
-                        if ($unit === 'kg') {
-                            $unitPrice = (float) $pricePerKg;
-                        } else {
-                            // For other units, calculate price per unit based on estimated weight
-                            // unitPrice should be the price per unit (e.g., price per sack, price per bunch)
-                            $unitPrice = (float) $pricePerKg * $estimatedWeightKg / $qty;
-                        }
+                    if ($unit === 'kg' && $product->price_kg) {
+                        $unitPrice = (float) $product->price_kg;
+                    } elseif ($unit === 'bunches' && $product->price_bunches) {
+                        $unitPrice = (float) $product->price_bunches;
                     } else {
-                        // Fallback to old pricing system
-                        if ($unit === 'kg' && $product->price_kg) {
-                            $unitPrice = (float) $product->price_kg;
-                        } elseif ($unit === 'bunches' && $product->price_bunches) {
-                            $unitPrice = (float) $product->price_bunches;
-                        } else {
-                            // If no price is found, use a default or throw an error
-                            Log::error('No price found for product', [
-                                'product_id' => $product->product_id,
-                                'product_name' => $product->product_name,
-                                'unit' => $unit,
-                                'price_per_kg' => $product->price_per_kg,
-                                'price_kg' => $product->price_kg ?? 'null',
-                                'price_bunches' => $product->price_bunches ?? 'null'
-                            ]);
-                            $unitPrice = 0; // This will cause the order to fail validation
-                        }
+                        // Fallback to old price field if new pricing not available
+                        $unitPrice = (float) $product->price ?? 0;
                     }
-                    
-                    // Calculate line total correctly
-                    if (isset($row['variation_price']) && $row['variation_price']) {
-                        // For variations, unitPrice is already the total price
-                        $lineTotal = round($unitPrice, 2);
-                    } else {
-                        // For regular items, multiply unit price by quantity
-                        $lineTotal = round($unitPrice * $qty, 2);
-                    }
-                    // Validate that we have a valid price
-                    if ($unitPrice <= 0) {
-                        abort(422, "Invalid price for product '{$product->product_name}'. Please contact support.");
-                    }
-                    
+                    $lineTotal = round($unitPrice * $qty, 2);
                     $total = round($total + $lineTotal, 2);
 
                     $raw = $product->image_url;
@@ -301,50 +123,15 @@ class OrderController extends Controller
                         ? $raw
                         : ($raw ? asset('storage/' . $raw) : null);
 
-                    // Find the actual Seller ID (not User ID) for this product
-                    $seller = \App\Models\Seller::where('user_id', $product->seller_id)->first();
-                    $actualSellerId = $seller ? $seller->id : null;
-                    
-                    // Debug: Log seller lookup
-                    Log::info('Seller lookup:', [
-                        'product_name' => $product->product_name,
-                        'product_seller_id' => $product->seller_id, // This is User ID
-                        'found_seller' => $seller ? 'yes' : 'no',
-                        'actual_seller_id' => $actualSellerId, // This should be Seller ID
-                        'seller_name' => $seller ? $seller->shop_name : 'null',
-                    ]);
-                    
                     $lineItems[] = [
                         'product_id' => $product->product_id,
-                        'seller_id' => $actualSellerId,
+                        'seller_id' => $product->seller_id,
                         'product_name' => $product->product_name,
                         'price' => $unitPrice,
                         'quantity' => $qty,
                         'unit' => $unit,
-                        'estimated_weight_kg' => round($estimatedWeightKg, 4),
-                        'price_per_kg_at_order' => (float) $pricePerKg ?? 0,
-                        'estimated_price' => $lineTotal,
                         'image_url' => $fullImage,
-                        'variation_type' => $row['variation_type'] ?? null,
-                        'variation_name' => $row['variation_name'] ?? null,
                     ];
-
-                    // Debug logging for line item creation
-                    Log::info('Line item created', [
-                        'product_name' => $product->product_name,
-                        'unit' => $unit,
-                        'quantity' => $qty,
-                        'estimated_weight_kg' => round($estimatedWeightKg, 4),
-                        'unit_price' => $unitPrice,
-                        'line_total' => $lineTotal,
-                        'estimated_price' => $lineTotal,
-                        'price_per_kg_at_order' => (float) $pricePerKg ?? 0,
-                        'variation_type' => $row['variation_type'] ?? null,
-                        'variation_name' => $row['variation_name'] ?? null,
-                        'variation_price' => $row['variation_price'] ?? null,
-                        'is_variation' => isset($row['variation_price']) && $row['variation_price'],
-                        'seller_id' => $product->seller_id,
-                    ]);
 
                     // Debug logging for seller_id
                     Log::info('Order item created', [
@@ -355,69 +142,12 @@ class OrderController extends Controller
                     ]);
                 }
 
-                // 🚚 LALAMOVE INTEGRATION: Get quotation for delivery orders
-                $lalamoveDeliveryFee = 0;
-                $lalamoveQuotationId = null;
-                
-                if ($data['delivery_method'] === 'delivery' && $address) {
-                    try {
-                        // Get seller address from first product
-                        $firstProduct = $products->first(); // Get first product
-                        $seller = \App\Models\Seller::where('user_id', $firstProduct->seller_id)->first();
-                        
-                        if ($seller && $seller->address) {
-                            Log::info('Fetching Lalamove quotation', [
-                                'pickup_address' => $seller->address,
-                                'dropoff_address' => $address->address,
-                                'order_total' => $total
-                            ]);
-                            
-                            $lalamoveService = new \App\Services\LalamoveService();
-                            $quotation = $lalamoveService->getQuotation(
-                                $seller->address,
-                                $address->address,
-                                'MOTORCYCLE' // Default service type
-                            );
-                            
-                            if ($quotation['success']) {
-                                $lalamoveDeliveryFee = $quotation['delivery_fee'];
-                                $lalamoveQuotationId = $quotation['quotation_id'];
-                                
-                                Log::info('Lalamove quotation received', [
-                                    'quotation_id' => $lalamoveQuotationId,
-                                    'delivery_fee' => $lalamoveDeliveryFee,
-                                    'expires_at' => $quotation['expires_at'] ?? 'N/A'
-                                ]);
-                            } else {
-                                Log::warning('Lalamove quotation failed', [
-                                    'error' => $quotation['error'] ?? 'Unknown error'
-                                ]);
-                                // Continue without Lalamove - seller can choose self-delivery
-                            }
-                        } else {
-                            Log::warning('Cannot get Lalamove quotation - seller address not found', [
-                                'seller_id' => $firstProduct->seller_id,
-                                'has_seller_record' => $seller ? 'yes' : 'no',
-                                'has_seller_address' => $seller && $seller->address ? 'yes' : 'no'
-                            ]);
-                        }
-                    } catch (\Exception $e) {
-                        Log::error('Lalamove quotation exception', [
-                            'error' => $e->getMessage(),
-                            'trace' => $e->getTraceAsString()
-                        ]);
-                        // Continue without Lalamove - seller can choose self-delivery
-                    }
-                }
-
                 $orderData = [
                     'user_id' => $user->id,
-                    'address_id' => $data['address_id'] ?? null,
+                    'address_id' => $data['address_id'],
                     'total' => $total,
-                    'lalamove_delivery_fee' => $lalamoveDeliveryFee,
                     'status' => 'pending',
                     'delivery_address' => $deliveryAddress,
-                    'delivery_method' => $data['delivery_method'],
                     'note' => $data['notes'] ?? null,
                     'payment_method' => $data['payment_method'] ?? 'cod',
                     'payment_link' => null,
@@ -425,61 +155,39 @@ class OrderController extends Controller
                 ];
 
                 $order = Order::create($orderData);
-                
-                // Create Lalamove delivery record if quotation was successful
-                if ($lalamoveQuotationId && $lalamoveDeliveryFee > 0) {
-                    try {
-                        $lalamoveDelivery = \App\Models\LalamoveDelivery::create([
-                            'order_id' => $order->id,
-                            'quotation_id' => $lalamoveQuotationId,
-                            'delivery_fee' => $lalamoveDeliveryFee,
-                            'service_type' => 'MOTORCYCLE',
-                            'pickup_address' => $seller->address,
-                            'dropoff_address' => $address->address,
-                            'status' => 'quoted' // Custom status for quotation
-                        ]);
-                        
-                        Log::info('Lalamove delivery record created', [
-                            'delivery_id' => $lalamoveDelivery->id,
-                            'quotation_id' => $lalamoveQuotationId,
-                            'delivery_fee' => $lalamoveDeliveryFee
-                        ]);
-                    } catch (\Exception $e) {
-                        Log::error('Failed to create Lalamove delivery record', [
-                            'error' => $e->getMessage(),
-                            'order_id' => $order->id
-                        ]);
-                    }
-                }
 
                 foreach ($lineItems as $li) {
-                    // Debug: Log what's being saved to database
-                    Log::info('Creating order item in database:', [
-                        'order_id' => $order->id,
-                        'estimated_weight_kg' => $li['estimated_weight_kg'],
-                        'price_per_kg_at_order' => $li['price_per_kg_at_order'],
-                        'estimated_price' => $li['estimated_price'],
-                        'variation_name' => $li['variation_name'] ?? 'none',
-                    ]);
-                    
-                    $createdItem = $order->items()->create($li);
-                    
-                    // Debug: Log what was actually saved
-                    Log::info('Order item created in database:', [
-                        'item_id' => $createdItem->id,
-                        'estimated_weight_kg' => $createdItem->estimated_weight_kg,
-                        'price_per_kg_at_order' => $createdItem->price_per_kg_at_order,
-                        'estimated_price' => $createdItem->estimated_price,
-                    ]);
+                    $order->items()->create($li);
                 }
 
-                // ✅ STOCK MANAGEMENT: Don't decrease stock when order is placed
-                // Stock will only be decreased when seller confirms the order
-                Log::info('Order created without stock reduction - waiting for seller confirmation', [
-                    'order_id' => $order->id,
-                    'status' => 'pending',
-                    'total_items' => count($lineItems)
-                ]);
+                // 🔒 ATOMIC: Decrement stock for each product using atomic operations
+                foreach ($data['items'] as $row) {
+                    $product = $products[$row['product_id']];
+                    $qty = (int) $row['quantity'];
+                    
+                    // Use atomic decrement to prevent race conditions
+                    $oldStock = (float) $product->stocks;
+                    $newStock = max(0, $oldStock - $qty);
+                    
+                    // Atomic update with stock validation
+                    $updated = Product::where('product_id', $product->product_id)
+                        ->where('stocks', '>=', $qty) // Double-check stock is still sufficient
+                        ->update(['stocks' => $newStock]);
+                    
+                    if (!$updated) {
+                        // Stock was insufficient - this should not happen due to locks, but safety check
+                        throw new \Exception("Stock became insufficient during order processing for product {$product->product_name}");
+                    }
+                    
+                    Log::info('Stock decremented atomically', [
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'old_stock' => $oldStock,
+                        'new_stock' => $newStock,
+                        'quantity_ordered' => $qty,
+                        'order_id' => $order->id
+                    ]);
+                }
 
                 // PayMongo checkout integration
                 if ($order->payment_method !== 'cod') {
@@ -563,8 +271,6 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'status' => $order->status,
                     'payment_method' => $order->payment_method,
-                    'delivery_method' => $order->delivery_method,
-                    'use_third_party_delivery' => $order->use_third_party_delivery,
                     'note' => $order->note,
                     'total' => $order->total,
                     'items' => $order->items->map(function ($item) {
@@ -628,17 +334,6 @@ class OrderController extends Controller
                     if ($order->payment_status === 'pending') {
                         $order->status = 'completed';
                         $order->payment_status = 'paid';
-                        
-                        // Increment sold count for each product in the order
-                        foreach ($order->items as $item) {
-                            $product = Product::find($item->product_id);
-                            if ($product) {
-                                $product->increment('total_sold', $item->quantity);
-                                // Broadcast sales update via Reverb
-                                event(new ProductSalesUpdated($product->fresh()));
-                            }
-                        }
-                        
                         $order->save();
 
                         \Log::info("Order {$orderId} updated to paid/completed");
@@ -740,15 +435,10 @@ class OrderController extends Controller
         foreach ($order->items as $item) {
             $product = Product::find($item->product_id);
             if ($product) {
-                $currentStock = (float) $product->stock_kg;
-                // Use estimated_weight_kg instead of quantity for proper stock restoration
-                $stockToRestore = (float) $item->estimated_weight_kg;
-                $newStock = $currentStock + $stockToRestore;
+                $currentStock = (float) $product->stocks;
+                $newStock = $currentStock + $item->quantity;
                 
-                $product->update(['stock_kg' => $newStock]);
-                
-                // Broadcast stock update via Reverb
-                event(new ProductStockUpdated($product->fresh()));
+                $product->update(['stocks' => $newStock]);
                 
                 Log::info('Stock restored for cancelled order', [
                     'order_id' => $order->id,
@@ -756,9 +446,7 @@ class OrderController extends Controller
                     'product_name' => $product->product_name,
                     'old_stock' => $currentStock,
                     'new_stock' => $newStock,
-                    'stock_restored_kg' => $stockToRestore,
-                    'quantity' => $item->quantity,
-                    'unit' => $item->unit
+                    'quantity_restored' => $item->quantity
                 ]);
             }
         }
@@ -773,16 +461,6 @@ class OrderController extends Controller
         // If not yet marked as paid, update payment_status
         if ($order->payment_status === 'pending') {
             $order->payment_status = 'paid';
-            
-            // Increment sold count for each product in the order
-            foreach ($order->items as $item) {
-                $product = Product::find($item->product_id);
-                if ($product) {
-                    $product->increment('total_sold', $item->quantity);
-                    // Broadcast sales update via Reverb
-                    event(new ProductSalesUpdated($product->fresh()));
-                }
-            }
         }
 
         $order->save();
@@ -806,9 +484,6 @@ class OrderController extends Controller
         // ✅ Use the helper
         $this->markAsCompleted($order);
 
-        // 🔔 NOTIFICATION: Send delivery notification to buyer
-        event(new OrderDeliveredNotification($order->fresh(), $order->user_id));
-
         return response()->json([
             'message' => 'The COD order has been delivered and marked as paid.',
             'order' => $order
@@ -816,742 +491,161 @@ class OrderController extends Controller
     }
 
     /**
-     * Create order with multi-unit support and seller verification
+     * Buyer: Confirm order receipt
      */
-    public function createOrder(Request $request)
+    public function buyerConfirm($id)
     {
-        $request->validate([
-            'buyer_id' => 'required|integer',
-            'seller_id' => 'required|integer',
-            'items' => 'required|array',
-            'items.*.product_id' => 'required|integer',
-            'items.*.vegetable_slug' => 'required|string',
-            'items.*.unit' => 'required|string',
-            'items.*.quantity' => 'required|numeric|min:0.1',
-            'items.*.variation_type' => 'nullable|string|in:premium,typeA,typeB,typeC',
-            'items.*.variation_name' => 'nullable|string',
-            'items.*.variation_price' => 'nullable|numeric|min:0',
-            'payment_method' => 'required|string|in:cod,online,wallet'
-        ]);
+        $order = Order::findOrFail($id);
 
-        DB::beginTransaction();
-        try {
-            // Create order
-            $order = Order::create([
-                'user_id' => $request->buyer_id,
-                'seller_id' => $request->seller_id,
-                'status' => 'for_seller_verification',
-                'total_price' => 0,
-                'payment_method' => $request->payment_method
-            ]);
-
-            $totalEstimatedPrice = 0;
-
-            foreach ($request->items as $item) {
-                $product = Product::find($item['product_id']);
-                if (!$product) {
-                    throw new \Exception("Product not found: {$item['product_id']}");
-                }
-
-                // Calculate estimated weight using unit conversion
-                $estimatedWeight = UnitConversion::calculateEstimatedWeight(
-                    $item['vegetable_slug'],
-                    $item['unit'],
-                    $item['quantity']
-                );
-
-                if ($estimatedWeight <= 0) {
-                    throw new \Exception("Invalid unit conversion for {$item['vegetable_slug']} - {$item['unit']}");
-                }
-
-                // Check and reserve stock
-                if (!$product->hasStockForWeight($estimatedWeight)) {
-                    throw new \Exception("Insufficient stock for {$product->product_name}. Required: {$estimatedWeight}kg, Available: {$product->stock_kg}kg");
-                }
-
-                // Reserve stock
-                $product->reserveStock($estimatedWeight);
-                
-                // Broadcast stock update
-                event(new ProductStockUpdated($product->fresh()));
-
-                // Calculate estimated price - use variation price if provided, otherwise use product price
-                $pricePerKg = $item['variation_price'] ?? $product->price_per_kg;
-                $estimatedPrice = $estimatedWeight * $pricePerKg;
-
-                // Create order item
-                OrderItem::create([
-                    'order_id' => $order->id,
-                    'product_id' => $item['product_id'],
-                    'seller_id' => $request->seller_id,
-                    'product_name' => $product->product_name,
-                    'price' => $estimatedPrice,
-                    'quantity' => $item['quantity'],
-                    'unit' => $item['unit'],
-                    'image_url' => $product->image_url,
-                    'variation_type' => $item['variation_type'] ?? null,
-                    'variation_name' => $item['variation_name'] ?? null,
-                    'estimated_weight_kg' => $estimatedWeight,
-                    'price_per_kg_at_order' => $pricePerKg,
-                    'estimated_price' => $estimatedPrice,
-                    'reserved' => true,
-                    'seller_verification_status' => 'pending'
-                ]);
-
-                $totalEstimatedPrice += $estimatedPrice;
-            }
-
-            // Update order total
-            $order->update(['total_price' => $totalEstimatedPrice]);
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Order created successfully and sent for seller verification',
-                'order_id' => $order->id,
-                'status' => 'for_seller_verification',
-                'total_estimated_price' => $totalEstimatedPrice
-            ], 201);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => $e->getMessage()], 400);
+        // Check authorization
+        if ($order->user_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
         }
-    }
 
-    /**
-     * Get pending orders for seller verification
-     */
-    public function getPendingOrders($sellerId)
-    {
-        $orders = Order::with(['items.product', 'user'])
-            ->where('seller_id', $sellerId)
-            ->where('status', 'for_seller_verification')
-            ->latest()
-            ->get();
+        // Check if order can be confirmed
+        if ($order->status === 'completed') {
+            return response()->json(['message' => 'Order already completed'], 400);
+        }
+
+        if ($order->status === 'cancelled') {
+            return response()->json(['message' => 'Cannot confirm a cancelled order'], 400);
+        }
+
+        // Update order status
+        $order->status = 'completed';
+        $order->completed_at = now();
+        
+        // Mark as paid if COD
+        if ($order->payment_method === 'cod' && $order->payment_status === 'pending') {
+            $order->payment_status = 'paid';
+        }
+        
+        $order->save();
 
         return response()->json([
-            'message' => 'Pending orders fetched successfully',
-            'data' => $orders
+            'message' => 'Order confirmed successfully',
+            'order' => $order->load('items')
         ]);
     }
 
     /**
-     * Seller verifies order items with actual weights
+     * Cancel an order (buyer or seller)
      */
-    public function sellerVerify(Request $request, $orderId)
+    public function cancelOrder($id)
     {
-        $request->validate([
-            'seller_id' => 'required|integer',
-            'items' => 'required|array',
-            'items.*.order_item_id' => 'required|integer',
-            'items.*.actual_weight_kg' => 'required|numeric|min:0.001',
-            'items.*.seller_notes' => 'nullable|string',
-            'action' => 'required|string|in:accept,reject'
-        ]);
+        $order = Order::findOrFail($id);
 
-        DB::beginTransaction();
-        try {
-            $order = Order::findOrFail($orderId);
+        // Check authorization (buyer or seller can cancel)
+        $userId = auth()->id();
+        $isBuyer = $order->user_id === $userId;
+        $isSeller = $order->items->contains(function($item) use ($userId) {
+            return $item->product && $item->product->seller_id === $userId;
+        });
 
-            if ($order->seller_id != $request->seller_id) {
-                throw new \Exception('Unauthorized: You can only verify your own orders');
-            }
-
-            if ($order->status !== 'for_seller_verification') {
-                throw new \Exception('Order is not in verification status');
-            }
-
-            foreach ($request->items as $item) {
-                $orderItem = OrderItem::find($item['order_item_id']);
-                if (!$orderItem || $orderItem->order_id != $orderId) {
-                    throw new \Exception('Invalid order item');
-                }
-
-                $product = $orderItem->product;
-
-                if ($request->action === 'reject') {
-                    // Return estimated weight to stock
-                    $product->releaseStock($orderItem->estimated_weight_kg);
-                    event(new ProductStockUpdated($product->fresh()));
-
-                    $orderItem->update([
-                        'reserved' => false,
-                        'seller_verification_status' => 'seller_rejected',
-                        'seller_notes' => $item['seller_notes'] ?? null
-                    ]);
-                    continue;
-                }
-
-                // Accept action
-                $actualWeight = floatval($item['actual_weight_kg']);
-                $delta = $actualWeight - $orderItem->estimated_weight_kg;
-
-                if ($delta < 0) {
-                    // Less weight than estimated - add back difference to stock
-                    $product->releaseStock(abs($delta));
-                } elseif ($delta > 0) {
-                    // More weight than estimated - try to deduct extra
-                    if (!$product->hasStockForWeight($delta)) {
-                        throw new \Exception("Insufficient stock for extra weight. Required: {$delta}kg, Available: {$product->stock_kg}kg for {$product->product_name}");
-                    }
-                    $product->reserveStock($delta);
-                }
-
-                // Update order item
-                $orderItem->update([
-                    'actual_weight_kg' => $actualWeight,
-                    'reserved' => false,
-                    'seller_verification_status' => 'seller_accepted',
-                    'seller_notes' => $item['seller_notes'] ?? null,
-                    'seller_confirmed_at' => now()
-                ]);
-
-                event(new ProductStockUpdated($product->fresh()));
-            }
-
-            // Update order status
-            $order->update(['status' => 'awaiting_buyer_confirmation']);
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Order verification completed successfully',
-                'order_id' => $orderId,
-                'status' => 'awaiting_buyer_confirmation'
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => $e->getMessage()], 400);
+        if (!$isBuyer && !$isSeller) {
+            return response()->json(['message' => 'Unauthorized'], 403);
         }
-    }
 
-    /**
-     * Seller confirms order and decreases stock
-     */
-    public function sellerConfirmOrder(Request $request, $orderId)
-    {
-        // Validate the request
-        $validated = $request->validate([
-            'use_third_party_delivery' => 'nullable|boolean'
-        ]);
+        // Check if order can be cancelled
+        if ($order->status === 'completed') {
+            return response()->json(['message' => 'Cannot cancel a completed order'], 400);
+        }
 
-        DB::beginTransaction();
-        try {
-            $user = $request->user();
-            if (!$user->is_seller) {
-                throw new \Exception('Unauthorized: You are not a seller');
-            }
-            
-            // Get the actual Seller ID (not User ID) for this user
-            $seller = $user->seller;
-            if (!$seller) {
-                throw new \Exception('Seller profile not found');
-            }
-            
-            $order = Order::findOrFail($orderId);
-            
-            // Check if seller is authorized
-            $hasSellerItems = $order->items()->where('seller_id', $seller->id)->exists();
-            if (!$hasSellerItems) {
-                throw new \Exception('Unauthorized: You can only confirm orders containing your products');
-            }
+        if ($order->status === 'cancelled') {
+            return response()->json(['message' => 'Order is already cancelled'], 400);
+        }
 
-            if ($order->status !== 'pending') {
-                throw new \Exception('Order cannot be confirmed at this stage');
-            }
-
-            // Decrease stock for each item in this seller's products
-            foreach ($order->items()->where('seller_id', $seller->id)->get() as $orderItem) {
-                $product = Product::find($orderItem->product_id);
-                if ($product) {
-                    // Use actual_weight_kg (adjusted by seller) or fallback to estimated_weight_kg
-                    $actualWeightKg = $orderItem->actual_weight_kg ?? $orderItem->estimated_weight_kg ?? 0;
-                    
-                    // Check if stock is sufficient
-                    $currentStock = (float) $product->stock_kg;
-                    if ($currentStock < $actualWeightKg) {
-                        throw new \Exception("Insufficient stock for {$product->product_name}. Available: {$currentStock}kg, Required: {$actualWeightKg}kg");
-                    }
-                    
-                    // Decrease stock atomically
-                    $newStock = max(0, $currentStock - $actualWeightKg);
-                    $product->update(['stock_kg' => $newStock]);
-                    
-                    // Update total sold with actual weight
-                    $product->increment('total_sold', $actualWeightKg);
-                    
-                    // Broadcast stock update
-                    event(new ProductStockUpdated($product->fresh()));
-                    
-                    Log::info('Stock decreased on seller confirmation', [
-                        'order_id' => $order->id,
-                        'product_id' => $product->product_id,
-                        'product_name' => $product->product_name,
-                        'old_stock' => $currentStock,
-                        'new_stock' => $newStock,
-                        'decremented_by' => $actualWeightKg,
-                        'actual_weight_kg' => $actualWeightKg,
-                        'estimated_weight_kg' => $orderItem->estimated_weight_kg
-                    ]);
-                }
-            }
-
-            // Update order status to confirmed - waiting for delivery
-            $updateData = ['status' => 'confirmed_waiting_delivery'];
-            
-            // Add delivery preference if provided
-            if (isset($validated['use_third_party_delivery'])) {
-                $updateData['use_third_party_delivery'] = $validated['use_third_party_delivery'];
-            }
-            
-            $order->update($updateData);
-
-            // If using third-party delivery, place Lalamove order
-            if (isset($validated['use_third_party_delivery']) && $validated['use_third_party_delivery']) {
-                $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
+        // Restore stock for all items
+        foreach ($order->items as $item) {
+            $product = Product::find($item->product_id);
+            if ($product) {
+                $product->increment('stock', $item->quantity);
                 
-                if ($lalamoveDelivery && $lalamoveDelivery->quotation_id) {
-                    try {
-                        $lalamoveService = new \App\Services\LalamoveService();
-                        
-                        // Get seller and buyer details for Lalamove order
-                        $firstProduct = $order->items()->first()?->product;
-                        $seller = $firstProduct?->user?->seller;
-                        $buyer = $order->user;
-                        $address = $order->address;
-                        
-                        if ($seller && $buyer && $address) {
-                            $senderDetails = [
-                                'name' => $seller->shop_name ?? $seller->user->name,
-                                'phone' => $seller->phone ?? $seller->user->phone,
-                                'address' => $seller->address
-                            ];
-                            
-                            $recipientDetails = [
-                                'name' => $address->name,
-                                'phone' => $address->phone,
-                                'address' => $address->address
-                            ];
-                            
-                            // Place Lalamove order
-                            $lalamoveOrder = $lalamoveService->placeOrder(
-                                $lalamoveDelivery->quotation_id,
-                                $senderDetails,
-                                $recipientDetails
-                            );
-                            
-                            if ($lalamoveOrder['success']) {
-                                // Update Lalamove delivery record with order details
-                                $lalamoveDelivery->update([
-                                    'lalamove_order_id' => $lalamoveOrder['lalamove_order_id'],
-                                    'status' => 'assigned',
-                                    'share_link' => $lalamoveOrder['share_link'] ?? null,
-                                    'driver_id' => $lalamoveOrder['driver_id'] ?? null,
-                                    'driver_name' => $lalamoveOrder['driver_name'] ?? null,
-                                    'driver_phone' => $lalamoveOrder['driver_phone'] ?? null,
-                                    'plate_number' => $lalamoveOrder['plate_number'] ?? null
-                                ]);
-                                
-                                // Update order with Lalamove order ID
-                                $order->update(['lalamove_order_id' => $lalamoveOrder['lalamove_order_id']]);
-                                
-                                Log::info('Lalamove order placed successfully', [
-                                    'order_id' => $order->id,
-                                    'lalamove_order_id' => $lalamoveOrder['lalamove_order_id'],
-                                    'quotation_id' => $lalamoveDelivery->quotation_id
-                                ]);
-                            } else {
-                                Log::error('Failed to place Lalamove order', [
-                                    'order_id' => $order->id,
-                                    'error' => $lalamoveOrder['error'] ?? 'Unknown error'
-                                ]);
-                                
-                                // Don't fail the entire order confirmation, just log the error
-                                // The seller can still deliver manually
-                            }
-                        }
-                    } catch (\Exception $e) {
-                        Log::error('Exception placing Lalamove order', [
-                            'order_id' => $order->id,
-                            'error' => $e->getMessage(),
-                            'trace' => $e->getTraceAsString()
-                        ]);
-                        
-                        // Don't fail the entire order confirmation, just log the error
-                    }
-                } else {
-                    Log::warning('No Lalamove quotation found for order', [
-                        'order_id' => $order->id
-                    ]);
-                }
-            }
-
-            DB::commit();
-
-            $response = [
-                'message' => 'Order confirmed successfully',
-                'order_id' => $orderId,
-                'status' => 'confirmed_waiting_delivery'
-            ];
-            
-            // Include Lalamove order info if applicable
-            if (isset($validated['use_third_party_delivery']) && $validated['use_third_party_delivery']) {
-                $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
-                if ($lalamoveDelivery && $lalamoveDelivery->lalamove_order_id) {
-                    $response['lalamove_order'] = [
-                        'lalamove_order_id' => $lalamoveDelivery->lalamove_order_id,
-                        'status' => $lalamoveDelivery->status,
-                        'share_link' => $lalamoveDelivery->share_link,
-                        'driver_name' => $lalamoveDelivery->driver_name,
-                        'driver_phone' => $lalamoveDelivery->driver_phone,
-                        'plate_number' => $lalamoveDelivery->plate_number
-                    ];
-                }
-            }
-            
-            return response()->json($response);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => $e->getMessage()], 400);
-        }
-    }
-
-    /**
-     * Update order item (for weight adjustments)
-     */
-    public function updateOrderItem(Request $request, $orderId, $itemId)
-    {
-        $request->validate([
-            'actual_weight_kg' => 'nullable|numeric|min:0',
-            'seller_verification_status' => 'nullable|string|in:pending,seller_accepted,seller_rejected,seller_adjusted'
-        ]);
-
-        try {
-            $orderItem = OrderItem::where('id', $itemId)
-                ->where('order_id', $orderId)
-                ->firstOrFail();
-
-            // Check if user is authorized (seller of this item)
-            $user = $request->user();
-            if (!$user->is_seller) {
-                throw new \Exception('Unauthorized: You are not a seller');
-            }
-            
-            // Get the actual Seller ID (not User ID) for this user
-            $seller = $user->seller;
-            if (!$seller) {
-                throw new \Exception('Seller profile not found');
-            }
-            
-            if ($orderItem->seller_id != $seller->id) {
-                throw new \Exception('Unauthorized: You can only update items from your own orders');
-            }
-
-            $updateData = [];
-            if ($request->has('actual_weight_kg')) {
-                $updateData['actual_weight_kg'] = $request->actual_weight_kg;
-            }
-            if ($request->has('seller_verification_status')) {
-                $updateData['seller_verification_status'] = $request->seller_verification_status;
-            }
-
-            $orderItem->update($updateData);
-
-            return response()->json([
-                'message' => 'Order item updated successfully',
-                'item' => $orderItem->fresh()
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 400);
-        }
-    }
-
-    /**
-     * Cancel order before confirmation (returns reserved stock)
-     */
-    public function cancelOrder(Request $request, $orderId)
-    {
-        $request->validate([
-            'user_id' => 'required|integer'
-        ]);
-
-        DB::beginTransaction();
-        try {
-            $order = Order::findOrFail($orderId);
-
-            // Check if user is authorized (buyer only for now)
-            if ($order->user_id != $request->user_id) {
-                throw new \Exception('Unauthorized: You can only cancel your own orders');
-            }
-
-            if (!in_array($order->status, ['pending', 'for_seller_verification', 'awaiting_buyer_confirmation'])) {
-                throw new \Exception('Order cannot be cancelled at this stage');
-            }
-
-            // Update order items status
-            foreach ($order->items as $orderItem) {
-                $orderItem->update([
-                    'reserved' => false,
-                    'seller_verification_status' => 'seller_rejected' // Use valid enum value
-                ]);
-            }
-
-            $order->update(['status' => 'cancelled']);
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Order cancelled successfully',
-                'order_id' => $orderId,
-                'status' => 'cancelled'
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => $e->getMessage()], 400);
-        }
-    }
-
-    /**
-     * Buyer confirms final order with actual weights and pays
-     */
-    public function buyerConfirm(Request $request, $orderId)
-    {
-        $request->validate([
-            'buyer_id' => 'required|integer',
-            'confirm' => 'required|boolean',
-            'payment_method' => 'required|string|in:cod,online,wallet'
-        ]);
-
-        DB::beginTransaction();
-        try {
-            $order = Order::findOrFail($orderId);
-
-            if ($order->user_id != $request->buyer_id) {
-                throw new \Exception('Unauthorized: You can only confirm your own orders');
-            }
-
-            if ($order->status !== 'awaiting_buyer_confirmation') {
-                throw new \Exception('Order is not awaiting buyer confirmation');
-            }
-
-            if (!$request->confirm) {
-                // Buyer rejects - cancel order
-                return $this->cancelOrder($request, $orderId);
-            }
-
-            // Calculate final total based on actual weights
-            $finalTotal = 0;
-            foreach ($order->items as $orderItem) {
-                if ($orderItem->isSellerAccepted()) {
-                    $finalTotal += $orderItem->getFinalPrice();
-                }
-            }
-
-            // Update order
-            $order->update([
-                'status' => 'confirmed',
-                'total_price' => $finalTotal,
-                'payment_method' => $request->payment_method
-            ]);
-
-            // 🚚 LALAMOVE INTEGRATION: Place Lalamove order if seller chose third-party delivery
-            if ($order->use_third_party_delivery) {
-                try {
-                    $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
-                    
-                    if ($lalamoveDelivery && $lalamoveDelivery->quotation_id) {
-                        Log::info('Placing Lalamove order after seller confirmation', [
-                            'order_id' => $order->id,
-                            'quotation_id' => $lalamoveDelivery->quotation_id
-                        ]);
-
-                        // Get seller details
-                        $seller = \App\Models\Seller::where('user_id', $user->id)->first();
-                        if (!$seller) {
-                            throw new \Exception('Seller profile not found');
-                        }
-
-                        // Get buyer details
-                        $buyer = $order->user;
-                        $address = $order->address;
-
-                        // Prepare items for Lalamove
-                        $items = $order->items->map(function ($item) {
-                            return [
-                                'quantity' => $item->quantity,
-                                'description' => $item->product->product_name
-                            ];
-                        })->toArray();
-
-                        $lalamoveService = new \App\Services\LalamoveService();
-                        $lalamoveOrder = $lalamoveService->placeOrder(
-                            $lalamoveDelivery->quotation_id,
-                            $seller->business_name ?? $user->name,
-                            $seller->phone ?? $user->phone ?? '+639000000000',
-                            $lalamoveDelivery->pickup_address,
-                            $buyer->name,
-                            $address->phone ?? $buyer->phone ?? '+639000000000',
-                            $lalamoveDelivery->dropoff_address,
-                            $order->note ?? 'Farm produce delivery',
-                            'MOTORCYCLE',
-                            $items
-                        );
-
-                        if (isset($lalamoveOrder['data']['id'])) {
-                            // Update the LalamoveDelivery record with order details
-                            $lalamoveDelivery->update([
-                                'lalamove_order_id' => $lalamoveOrder['data']['id'],
-                                'status' => 'pending',
-                                'share_link' => $lalamoveOrder['data']['shareLink'] ?? null
-                            ]);
-
-                            // Update the main order with Lalamove order ID
-                            $order->update([
-                                'lalamove_order_id' => $lalamoveOrder['data']['id']
-                            ]);
-
-                            Log::info('Lalamove order placed successfully', [
-                                'order_id' => $order->id,
-                                'lalamove_order_id' => $lalamoveOrder['data']['id'],
-                                'status' => $lalamoveOrder['data']['status']
-                            ]);
-                        } else {
-                            Log::error('Lalamove order placement failed - no order ID in response', [
-                                'order_id' => $order->id,
-                                'response' => $lalamoveOrder
-                            ]);
-                            // Don't fail the entire order confirmation, just log the error
-                        }
-                    } else {
-                        Log::warning('No Lalamove delivery record found for order', [
-                            'order_id' => $order->id,
-                            'use_third_party_delivery' => $order->use_third_party_delivery
-                        ]);
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Failed to place Lalamove order after seller confirmation', [
-                        'order_id' => $order->id,
-                        'error' => $e->getMessage(),
-                        'trace' => $e->getTraceAsString()
-                    ]);
-                    // Don't fail the entire order confirmation, just log the error
-                }
-            }
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Order confirmed successfully',
-                'order_id' => $orderId,
-                'status' => 'confirmed',
-                'final_total' => $finalTotal,
-                'lalamove_order_placed' => $order->use_third_party_delivery && $order->lalamove_order_id ? true : false
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => $e->getMessage()], 400);
-        }
-    }
-
-    /**
-     * Seller: Confirm delivery method (self-delivery or Lalamove)
-     */
-    public function confirmDeliveryMethod(Request $request, $orderId)
-    {
-        try {
-            $validated = $request->validate([
-                'use_third_party_delivery' => 'required|boolean'
-            ]);
-
-            $user = $request->user();
-            if (!$user->is_seller) {
-                return response()->json(['error' => 'Only sellers can confirm delivery method'], 403);
-            }
-
-            $order = Order::findOrFail($orderId);
-            
-            // Verify this is the seller's order
-            $firstItem = $order->items()->first();
-            if (!$firstItem || $firstItem->product->seller_id !== $user->id) {
-                return response()->json(['error' => 'Unauthorized access to order'], 403);
-            }
-
-            // Check if order is in correct status
-            if ($order->status !== 'for_seller_verification') {
-                return response()->json(['error' => 'Order is not in correct status for delivery confirmation'], 400);
-            }
-
-            DB::beginTransaction();
-
-            $useThirdPartyDelivery = $validated['use_third_party_delivery'];
-            
-            if ($useThirdPartyDelivery) {
-                // Check if Lalamove quotation exists
-                $lalamoveDelivery = \App\Models\LalamoveDelivery::where('order_id', $order->id)->first();
-                
-                if (!$lalamoveDelivery || !$lalamoveDelivery->quotation_id) {
-                    DB::rollBack();
-                    return response()->json(['error' => 'No Lalamove quotation found for this order'], 400);
-                }
-
-                // Check if quotation is still valid (5 minutes)
-                $quotationAge = now()->diffInMinutes($lalamoveDelivery->created_at);
-                if ($quotationAge > 5) {
-                    DB::rollBack();
-                    return response()->json(['error' => 'Lalamove quotation has expired. Please refresh the order.'], 400);
-                }
-
-                Log::info('Seller confirmed Lalamove delivery', [
+                Log::info('Stock restored due to order cancellation:', [
                     'order_id' => $order->id,
-                    'quotation_id' => $lalamoveDelivery->quotation_id,
-                    'delivery_fee' => $lalamoveDelivery->delivery_fee
-                ]);
-
-                // Update order to use third-party delivery
-                $order->update([
-                    'use_third_party_delivery' => true,
-                    'status' => 'confirmed_waiting_delivery'
-                ]);
-
-                // Note: The actual Lalamove order will be placed when the seller confirms the order
-                // This just marks the preference. The order placement happens in sellerConfirmOrder method.
-
-            } else {
-                Log::info('Seller confirmed self-delivery', [
-                    'order_id' => $order->id
-                ]);
-
-                // Update order to use self-delivery
-                $order->update([
-                    'use_third_party_delivery' => false,
-                    'status' => 'confirmed_waiting_delivery'
+                    'product_id' => $product->product_id,
+                    'quantity_restored' => $item->quantity,
+                    'new_stock' => $product->stock
                 ]);
             }
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Delivery method confirmed successfully',
-                'order_id' => $order->id,
-                'use_third_party_delivery' => $useThirdPartyDelivery,
-                'status' => 'confirmed_waiting_delivery'
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Confirm delivery method error', [
-                'order_id' => $orderId,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            return response()->json(['error' => $e->getMessage()], 400);
         }
+
+        // Update order status
+        $order->status = 'cancelled';
+        $order->cancelled_at = now();
+        $order->save();
+
+        return response()->json([
+            'message' => 'Order cancelled successfully',
+            'order' => $order->load('items')
+        ]);
+    }
+
+    /**
+     * Update order item (quantity, price, etc.)
+     */
+    public function updateItem($orderId, $itemId)
+    {
+        $order = Order::findOrFail($orderId);
+        $item = $order->items()->findOrFail($itemId);
+
+        // Check authorization (seller only)
+        $product = Product::find($item->product_id);
+        if (!$product || $product->seller_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Validate request
+        $validated = request()->validate([
+            'quantity' => 'sometimes|integer|min:1',
+            'price' => 'sometimes|numeric|min:0',
+            'status' => 'sometimes|string|in:pending,confirmed,preparing,ready,delivered',
+        ]);
+
+        // If quantity is being updated, adjust stock
+        if (isset($validated['quantity'])) {
+            $oldQuantity = $item->quantity;
+            $newQuantity = $validated['quantity'];
+            $difference = $newQuantity - $oldQuantity;
+
+            // Check if enough stock
+            if ($difference > 0 && $product->stock < $difference) {
+                return response()->json([
+                    'message' => 'Insufficient stock',
+                    'available_stock' => $product->stock
+                ], 400);
+            }
+
+            // Update stock
+            $product->decrement('stock', $difference);
+            
+            // Update item total
+            $item->quantity = $newQuantity;
+            $item->total = $newQuantity * $item->price;
+        }
+
+        // Update price if provided
+        if (isset($validated['price'])) {
+            $item->price = $validated['price'];
+            $item->total = $item->quantity * $validated['price'];
+        }
+
+        // Update status if provided
+        if (isset($validated['status'])) {
+            $item->status = $validated['status'];
+        }
+
+        $item->save();
+
+        // Recalculate order total
+        $order->total_amount = $order->items->sum('total');
+        $order->save();
+
+        return response()->json([
+            'message' => 'Order item updated successfully',
+            'item' => $item,
+            'order' => $order->load('items')
+        ]);
     }
 
 }

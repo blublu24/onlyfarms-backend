@@ -19,6 +19,7 @@ use App\Http\Controllers\PreorderController;
 use App\Http\Controllers\AdminProductController;
 use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\LalamoveController;
 use App\Http\Controllers\UnitConversionController;
 
 // NEW: harvest controllers
@@ -29,7 +30,6 @@ use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GmailApiVerificationController;
 use App\Http\Controllers\SmartEmailVerificationController;
 use App\Http\Controllers\SocialLoginController;
-use App\Http\Controllers\LalamoveController;
 
 /*
 |--------------------------------------------------------------------------
@@ -94,6 +94,7 @@ Route::post('/test-firebase-sms', function(Request $request) {
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/products/{id}/preorder-eligibility', [ProductController::class, 'checkPreorderEligibility']);
 Route::get('/products/{id}/preorder-eligibility', [PreorderController::class, 'checkEligibility']);
 Route::get('/sellers', [SellerController::class, 'index']);
 Route::get('/sellers/{id}', [SellerController::class, 'show']);
@@ -212,11 +213,17 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
     Route::post('/orders', [OrderController::class, 'store']);
+    Route::post('/orders/{order}/buyer/confirm', [OrderController::class, 'buyerConfirm']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancelOrder']);
+    Route::patch('/orders/{order}/items/{item}', [OrderController::class, 'updateItem']);
 
     // Orders (seller)
     Route::get('/seller/orders', [SellerOrderController::class, 'index']);
     Route::get('/seller/orders/{order}', [SellerOrderController::class, 'show']);
     Route::patch('/seller/orders/{order}/status', [SellerOrderController::class, 'updateStatus']);
+    Route::post('/orders/{order}/seller/confirm', [SellerOrderController::class, 'sellerConfirm']);
+    Route::post('/orders/{order}/seller/verify', [SellerOrderController::class, 'verifyOrder']);
+    Route::get('/seller/{seller}/orders/pending', [SellerOrderController::class, 'pendingOrders']);
 
     // Addresses
     Route::get('/addresses', [AddressController::class, 'index']);
@@ -258,6 +265,11 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     // ✅ Preorders (protected)
     Route::get('/preorders', [PreorderController::class, 'index']);
     Route::post('/preorders', [PreorderController::class, 'store']);
+    Route::get('/preorders/{preorder}', [PreorderController::class, 'show']);
+    Route::put('/preorders/{preorder}', [PreorderController::class, 'update']);
+    Route::post('/preorders/{preorder}/cancel', [PreorderController::class, 'cancel']);
+    Route::get('/preorders/consumer', [PreorderController::class, 'consumerPreorders']);
+    Route::get('/preorders/seller', [PreorderController::class, 'sellerPreorders']);
     Route::get('/preorders/consumer', [PreorderController::class, 'consumerPreorders']);
     Route::get('/preorders/seller', [PreorderController::class, 'sellerPreorders']);
     Route::get('/preorders/{id}', [PreorderController::class, 'show']);
