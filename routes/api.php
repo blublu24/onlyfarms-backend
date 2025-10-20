@@ -3,6 +3,15 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+// Health check endpoint for Railway
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+        'message' => 'OnlyFarms API is running',
+        'timestamp' => now()->toISOString()
+    ]);
+});
+
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
