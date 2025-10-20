@@ -29,13 +29,23 @@
 3. **Railway will create a MySQL database automatically**
 4. **Copy the database connection details**
 
-### **Step 5: Set Environment Variables**
+### **Step 5: Generate APP_KEY**
+**CRITICAL:** Before setting environment variables, generate your Laravel APP_KEY:
+
+1. Run locally in your backend directory:
+   ```bash
+   php artisan key:generate --show
+   ```
+2. Copy the generated key (e.g., `base64:abc123xyz...`)
+
+### **Step 6: Set Environment Variables**
 In Railway dashboard, go to your project → Variables tab:
 
 ```env
 # App Configuration
 APP_NAME=OnlyFarms
 APP_ENV=production
+APP_KEY=base64:GENERATE_WITH_php_artisan_key_generate
 APP_DEBUG=false
 APP_URL=https://onlyfarms-production.railway.app
 
@@ -70,7 +80,7 @@ MAIL_FROM_NAME=OnlyFarms
 FIREBASE_SERVER_KEY=your_firebase_server_key
 ```
 
-### **Step 6: Deploy and Run Migrations**
+### **Step 7: Deploy and Run Migrations**
 1. **Railway will automatically deploy your app**
 2. **Go to your project → Deployments**
 3. **Click on the latest deployment**
@@ -81,7 +91,7 @@ FIREBASE_SERVER_KEY=your_firebase_server_key
    php artisan migrate --force
    ```
 
-### **Step 7: Update OAuth Settings**
+### **Step 8: Update OAuth Settings**
 
 #### **Facebook App Settings:**
 1. Go to [developers.facebook.com](https://developers.facebook.com)
@@ -95,7 +105,7 @@ FIREBASE_SERVER_KEY=your_firebase_server_key
 3. Go to APIs & Services → Credentials
 4. **Update Authorized redirect URIs:** `https://onlyfarms-production.railway.app/api/auth/google/callback`
 
-### **Step 8: Test Your Deployment**
+### **Step 9: Test Your Deployment**
 Test these endpoints:
 ```bash
 # Basic API test
