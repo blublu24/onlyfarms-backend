@@ -7,6 +7,7 @@ use App\Models\CropSchedule;
 use App\Models\Harvest;
 use App\Models\Seller;
 use App\Models\User;
+use App\Events\HarvestPublished;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -63,12 +64,19 @@ class HarvestController extends Controller
             'harvested_at' => 'required|date',
             'yield_qty' => 'required|numeric|min:0',
             'yield_unit' => 'required|string|in:kg,g,bunch,tray,piece',
-            'grade' => 'nullable|string|in:A,B,C,reject',
-            'waste_qty' => 'nullable|numeric|min:0',
-            'moisture_pct' => 'nullable|numeric|min:0|max:100',
+            // Replace grade with variation classes
+            'grade' => 'nullable|string|in:premium,type_a,type_b',
+            // removed waste/moisture requirements
             'harvest_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'photos_json' => 'nullable|array',
             'photos_json.*' => 'string', // URLs or base64 strings
+            
+            // New fields for preorder matching
+            'variation_type' => 'required|string|in:premium,type_a,type_b',
+            'variation_name' => 'nullable|string|max:255',
+            'unit_key' => 'required|string',
+            'actual_weight_kg' => 'required|numeric|min:0',
+            'quantity_units' => 'required|integer|min:1',
         ]);
 
         // Generate unique lot code
@@ -78,6 +86,10 @@ class HarvestController extends Controller
         $validated['created_by_type'] = 'seller';
         $validated['created_by_id'] = $seller->id;
         $validated['lot_code'] = $lotCode;
+        
+        // Set available weight for allocation (initial allocation is 0)
+        $validated['allocated_weight_kg'] = 0;
+        $validated['available_weight_kg'] = $validated['actual_weight_kg'];
 
         // Handle harvest image upload
         if ($request->hasFile('harvest_image')) {
@@ -146,9 +158,7 @@ class HarvestController extends Controller
             'harvested_at' => 'nullable|date',
             'yield_qty' => 'nullable|numeric|min:0',
             'yield_unit' => 'nullable|string|in:kg,g,bunch,tray,piece',
-            'grade' => 'nullable|string|in:A,B,C,reject',
-            'waste_qty' => 'nullable|numeric|min:0',
-            'moisture_pct' => 'nullable|numeric|min:0|max:100',
+            'grade' => 'nullable|string|in:premium,type_a,type_b',
             'photos_json' => 'nullable|array',
             'photos_json.*' => 'string',
         ]);
@@ -224,6 +234,9 @@ class HarvestController extends Controller
             'published_at' => now(),
             'product_id' => $validated['product_id'],
         ]);
+
+        // Emit harvest:published event for matching job
+        event(new HarvestPublished($harvest));
 
         return response()->json($harvest->load(['cropSchedule.product', 'product', 'verifier']));
     }

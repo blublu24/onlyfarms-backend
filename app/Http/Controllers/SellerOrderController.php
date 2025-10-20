@@ -27,12 +27,13 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'Seller profile not found'], 404);
         }
 
-        // Fetch orders containing this seller's products using the correct Seller ID
-        $orders = Order::with(['items' => function ($q) use ($seller) {
-            $q->where('seller_id', $seller->id);
+        // ✅ FIX: Use USER ID because order_items.seller_id stores the User ID, not Seller model ID
+        // Fetch orders containing this seller's products using the USER ID
+        $orders = Order::with(['items' => function ($q) use ($user) {
+            $q->where('seller_id', $user->id);
         }])
-            ->whereHas('items', function ($q) use ($seller) {
-                $q->where('seller_id', $seller->id);
+            ->whereHas('items', function ($q) use ($user) {
+                $q->where('seller_id', $user->id);
             })
             ->orderBy('created_at', 'desc')
             ->get();
@@ -46,8 +47,8 @@ class SellerOrderController extends Controller
             'orders' => $orders->toArray()
         ]);
 
-        // Also check what order_items exist for this seller
-        $orderItems = \App\Models\OrderItem::where('seller_id', $seller->id)->get();
+        // Also check what order_items exist for this seller (using USER ID)
+        $orderItems = \App\Models\OrderItem::where('seller_id', $user->id)->get();
         Log::info('Order items for seller', [
             'user_id' => $user->id,
             'seller_id' => $seller->id,

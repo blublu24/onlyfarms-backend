@@ -16,7 +16,7 @@ class Preorder extends Model
         'quantity',
         'expected_availability_date',
         
-        // New unit fields
+        // Variation and unit fields
         'variation_type',
         'variation_name',
         'unit_key',
@@ -24,9 +24,17 @@ class Preorder extends Model
         'unit_price',
         'status',
         'harvest_date',
+        'harvest_date_ref',
         'reserved_qty',
+        'allocated_qty',
         'notes',
         'version',
+        
+        // Audit fields
+        'status_updated_at',
+        'status_updated_by',
+        'matched_at',
+        'ready_at',
     ];
 
     /* ==============================
@@ -65,6 +73,22 @@ class Preorder extends Model
         return $this->hasOne(Order::class, 'preorder_id', 'id');
     }
 
+    /**
+     * A preorder can be linked to a harvest that will fulfill it.
+     */
+    public function harvest()
+    {
+        return $this->belongsTo(Harvest::class, 'harvest_date_ref', 'id');
+    }
+
+    /**
+     * A preorder can have its status updated by a user (seller, admin, or buyer).
+     */
+    public function statusUpdater()
+    {
+        return $this->belongsTo(User::class, 'status_updated_by', 'id');
+    }
+
     /* ==============================
      | Attribute Casting
      ============================== */
@@ -74,8 +98,12 @@ class Preorder extends Model
         'harvest_date' => 'date',
         'unit_weight_kg' => 'decimal:4',
         'unit_price' => 'decimal:2',
-        'reserved_qty' => 'decimal:2',
+        'reserved_qty' => 'decimal:4',
+        'allocated_qty' => 'decimal:4',
         'version' => 'integer',
+        'status_updated_at' => 'datetime',
+        'matched_at' => 'datetime',
+        'ready_at' => 'datetime',
     ];
 
     /* ==============================
@@ -151,8 +179,8 @@ class Preorder extends Model
      */
     public function canBeCancelled(): bool
     {
-        return in_array($this->status, ['pending', 'confirmed']) && 
-               (!$this->harvest_date || $this->harvest_date > now());
+        return in_array($this->status, ['pending', 'reserved']) && 
+               (!$this->harvest || !$this->harvest->published);
     }
 
     /**
@@ -160,7 +188,23 @@ class Preorder extends Model
      */
     public function canBeFulfilled(): bool
     {
-        return $this->status === 'confirmed' && $this->harvest_date;
+        return $this->status === 'ready' && $this->allocated_qty > 0;
+    }
+
+    /**
+     * Check if preorder can be matched to harvest
+     */
+    public function canBeMatched(): bool
+    {
+        return $this->status === 'pending' && $this->harvest_date_ref === null;
+    }
+
+    /**
+     * Check if preorder is ready for fulfillment
+     */
+    public function isReadyForFulfillment(): bool
+    {
+        return $this->status === 'ready' && $this->ready_at !== null;
     }
 
     /**
@@ -205,9 +249,9 @@ class Preorder extends Model
     }
 
     /**
-     * Update status with version checking for optimistic locking
+     * Update status with version checking for optimistic locking and audit tracking
      */
-    public function updateStatus($newStatus, $expectedVersion = null)
+    public function updateStatus($newStatus, $expectedVersion = null, $updatedBy = null)
     {
         if ($expectedVersion && $this->version !== $expectedVersion) {
             throw new \Exception('Preorder has been modified by another process');
@@ -215,6 +259,38 @@ class Preorder extends Model
 
         $this->status = $newStatus;
         $this->version++;
+        $this->status_updated_at = now();
+        $this->status_updated_by = $updatedBy;
+
+        // Set timestamps based on status
+        if ($newStatus === 'reserved' && !$this->matched_at) {
+            $this->matched_at = now();
+        } elseif ($newStatus === 'ready' && !$this->ready_at) {
+            $this->ready_at = now();
+        }
+
+        return $this->save();
+    }
+
+    /**
+     * Allocate quantity from harvest
+     */
+    public function allocateQuantity($quantity, $harvestId = null)
+    {
+        $this->allocated_qty = $quantity;
+        if ($harvestId) {
+            $this->harvest_date_ref = $harvestId;
+        }
+        $this->updateStatus('reserved', null, null);
+        return $this->save();
+    }
+
+    /**
+     * Mark as ready for fulfillment
+     */
+    public function markAsReady()
+    {
+        $this->updateStatus('ready', null, null);
         return $this->save();
     }
 }
