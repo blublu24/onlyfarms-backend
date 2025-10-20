@@ -808,6 +808,11 @@ class AuthController extends Controller
             $clientId = config('services.facebook.client_id');
             $redirectUri = config('services.facebook.redirect');
             
+            // Force HTTPS for Facebook OAuth (Facebook requires secure connections)
+            if (strpos($redirectUri, 'http://') === 0) {
+                $redirectUri = str_replace('http://', 'https://', $redirectUri);
+            }
+            
             $params = [
                 'client_id' => $clientId,
                 'redirect_uri' => $redirectUri,
@@ -888,6 +893,11 @@ class AuthController extends Controller
             // Build the Google OAuth URL manually to avoid session dependency
             $clientId = config('services.google.client_id');
             $redirectUri = config('services.google.redirect');
+            
+            // Force HTTPS for Google OAuth (Google requires secure connections)
+            if (strpos($redirectUri, 'http://') === 0) {
+                $redirectUri = str_replace('http://', 'https://', $redirectUri);
+            }
             
             $params = [
                 'client_id' => $clientId,

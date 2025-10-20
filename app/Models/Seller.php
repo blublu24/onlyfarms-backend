@@ -13,8 +13,18 @@ class Seller extends Model
         'user_id',
         'shop_name',
         'address',
-        'phone_number',     // ✅ matches migration
-        'business_permit',  // ✅ matches migration
+        'phone_number',
+        'email',
+        'registered_name',
+        'business_name',
+        'tin',
+        'vat_status',
+        'business_email',
+        'business_phone',
+        'government_id_type',
+        'government_id_front',
+        'government_id_back',
+        'status',
     ];
 
     // 🔗 A seller belongs to a user

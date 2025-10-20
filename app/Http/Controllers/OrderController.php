@@ -490,4 +490,162 @@ class OrderController extends Controller
         ]);
     }
 
+    /**
+     * Buyer: Confirm order receipt
+     */
+    public function buyerConfirm($id)
+    {
+        $order = Order::findOrFail($id);
+
+        // Check authorization
+        if ($order->user_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Check if order can be confirmed
+        if ($order->status === 'completed') {
+            return response()->json(['message' => 'Order already completed'], 400);
+        }
+
+        if ($order->status === 'cancelled') {
+            return response()->json(['message' => 'Cannot confirm a cancelled order'], 400);
+        }
+
+        // Update order status
+        $order->status = 'completed';
+        $order->completed_at = now();
+        
+        // Mark as paid if COD
+        if ($order->payment_method === 'cod' && $order->payment_status === 'pending') {
+            $order->payment_status = 'paid';
+        }
+        
+        $order->save();
+
+        return response()->json([
+            'message' => 'Order confirmed successfully',
+            'order' => $order->load('items')
+        ]);
+    }
+
+    /**
+     * Cancel an order (buyer or seller)
+     */
+    public function cancelOrder($id)
+    {
+        $order = Order::findOrFail($id);
+
+        // Check authorization (buyer or seller can cancel)
+        $userId = auth()->id();
+        $isBuyer = $order->user_id === $userId;
+        $isSeller = $order->items->contains(function($item) use ($userId) {
+            return $item->product && $item->product->seller_id === $userId;
+        });
+
+        if (!$isBuyer && !$isSeller) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Check if order can be cancelled
+        if ($order->status === 'completed') {
+            return response()->json(['message' => 'Cannot cancel a completed order'], 400);
+        }
+
+        if ($order->status === 'cancelled') {
+            return response()->json(['message' => 'Order is already cancelled'], 400);
+        }
+
+        // Restore stock for all items
+        foreach ($order->items as $item) {
+            $product = Product::find($item->product_id);
+            if ($product) {
+                $product->increment('stock', $item->quantity);
+                
+                Log::info('Stock restored due to order cancellation:', [
+                    'order_id' => $order->id,
+                    'product_id' => $product->product_id,
+                    'quantity_restored' => $item->quantity,
+                    'new_stock' => $product->stock
+                ]);
+            }
+        }
+
+        // Update order status
+        $order->status = 'cancelled';
+        $order->cancelled_at = now();
+        $order->save();
+
+        return response()->json([
+            'message' => 'Order cancelled successfully',
+            'order' => $order->load('items')
+        ]);
+    }
+
+    /**
+     * Update order item (quantity, price, etc.)
+     */
+    public function updateItem($orderId, $itemId)
+    {
+        $order = Order::findOrFail($orderId);
+        $item = $order->items()->findOrFail($itemId);
+
+        // Check authorization (seller only)
+        $product = Product::find($item->product_id);
+        if (!$product || $product->seller_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Validate request
+        $validated = request()->validate([
+            'quantity' => 'sometimes|integer|min:1',
+            'price' => 'sometimes|numeric|min:0',
+            'status' => 'sometimes|string|in:pending,confirmed,preparing,ready,delivered',
+        ]);
+
+        // If quantity is being updated, adjust stock
+        if (isset($validated['quantity'])) {
+            $oldQuantity = $item->quantity;
+            $newQuantity = $validated['quantity'];
+            $difference = $newQuantity - $oldQuantity;
+
+            // Check if enough stock
+            if ($difference > 0 && $product->stock < $difference) {
+                return response()->json([
+                    'message' => 'Insufficient stock',
+                    'available_stock' => $product->stock
+                ], 400);
+            }
+
+            // Update stock
+            $product->decrement('stock', $difference);
+            
+            // Update item total
+            $item->quantity = $newQuantity;
+            $item->total = $newQuantity * $item->price;
+        }
+
+        // Update price if provided
+        if (isset($validated['price'])) {
+            $item->price = $validated['price'];
+            $item->total = $item->quantity * $validated['price'];
+        }
+
+        // Update status if provided
+        if (isset($validated['status'])) {
+            $item->status = $validated['status'];
+        }
+
+        $item->save();
+
+        // Recalculate order total
+        $order->total_amount = $order->items->sum('total');
+        $order->save();
+
+        return response()->json([
+            'message' => 'Order item updated successfully',
+            'item' => $item,
+            'order' => $order->load('items')
+        ]);
+    }
+
 }

@@ -160,4 +160,103 @@ class SellerOrderController extends Controller
             }
         }
     }
+
+    /**
+     * Seller: Confirm order (accept order and start preparing)
+     */
+    public function sellerConfirm(Request $request, $id)
+    {
+        $user = $request->user();
+        $order = Order::with('items')->findOrFail($id);
+
+        // Ensure the order has at least one item from this seller
+        $hasSellerItems = $order->items()->where('seller_id', $user->id)->exists();
+        if (!$hasSellerItems) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Check if order can be confirmed
+        if ($order->status === 'completed') {
+            return response()->json(['message' => 'Order already completed'], 400);
+        }
+
+        if ($order->status === 'cancelled') {
+            return response()->json(['message' => 'Cannot confirm a cancelled order'], 400);
+        }
+
+        // Update order status to confirmed/preparing
+        $order->status = 'confirmed';
+        $order->confirmed_at = now();
+        $order->save();
+
+        return response()->json([
+            'message' => 'Order confirmed successfully',
+            'order' => $order->load('items')
+        ]);
+    }
+
+    /**
+     * Seller: Verify order (verify payment and details before processing)
+     */
+    public function verifyOrder(Request $request, $id)
+    {
+        $user = $request->user();
+        $order = Order::with('items')->findOrFail($id);
+
+        // Ensure the order has at least one item from this seller
+        $hasSellerItems = $order->items()->where('seller_id', $user->id)->exists();
+        if (!$hasSellerItems) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Validate request
+        $request->validate([
+            'verified' => 'required|boolean',
+            'notes' => 'nullable|string',
+        ]);
+
+        // Update verification status
+        $order->seller_verified = $request->verified;
+        $order->seller_verified_at = $request->verified ? now() : null;
+        $order->seller_notes = $request->notes;
+        
+        if ($request->verified) {
+            $order->status = 'verified';
+        }
+        
+        $order->save();
+
+        return response()->json([
+            'message' => $request->verified ? 'Order verified successfully' : 'Order verification removed',
+            'order' => $order->load('items')
+        ]);
+    }
+
+    /**
+     * Get pending orders for a seller
+     */
+    public function pendingOrders(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user->is_seller) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Fetch pending orders containing this seller's products
+        $orders = Order::with(['items' => function ($q) use ($user) {
+            $q->where('seller_id', $user->id);
+        }])
+            ->whereHas('items', function ($q) use ($user) {
+                $q->where('seller_id', $user->id);
+            })
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'message' => 'Pending orders fetched successfully',
+            'data' => $orders
+        ]);
+    }
 }

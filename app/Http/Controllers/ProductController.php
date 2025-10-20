@@ -361,4 +361,50 @@ class ProductController extends Controller
             'data' => $products
         ]);
     }
+
+    /**
+     * Check if a product is eligible for preorder
+     */
+    public function checkPreorderEligibility($id)
+    {
+        $product = Product::findOrFail($id);
+
+        // Determine if product can be preordered
+        $isEligible = false;
+        $reason = '';
+
+        // Product is eligible for preorder if:
+        // 1. Stock is 0 or low (< 10)
+        // 2. Product is marked as allowing preorders (if such field exists)
+        // 3. Product is not discontinued
+
+        if ($product->stock == 0) {
+            $isEligible = true;
+            $reason = 'Product is currently out of stock';
+        } elseif ($product->stock > 0 && $product->stock < 10) {
+            $isEligible = true;
+            $reason = 'Product has low stock - preorder to secure your order';
+        } else {
+            $isEligible = false;
+            $reason = 'Product is currently in stock';
+        }
+
+        // Check if product allows preorders (if field exists)
+        if (isset($product->allow_preorder) && !$product->allow_preorder) {
+            $isEligible = false;
+            $reason = 'This product does not accept preorders';
+        }
+
+        return response()->json([
+            'eligible' => $isEligible,
+            'reason' => $reason,
+            'current_stock' => $product->stock,
+            'product' => [
+                'id' => $product->product_id,
+                'name' => $product->product_name,
+                'price' => $product->price,
+                'stock' => $product->stock,
+            ]
+        ]);
+    }
 }

@@ -19,6 +19,7 @@ use App\Http\Controllers\PreorderController;
 use App\Http\Controllers\AdminProductController;
 use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\LalamoveController;
 
 // NEW: harvest controllers
 use App\Http\Controllers\Seller\HarvestController as SellerHarvestController;
@@ -88,6 +89,7 @@ Route::post('/test-firebase-sms', function(Request $request) {
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/products/{id}/preorder-eligibility', [ProductController::class, 'checkPreorderEligibility']);
 Route::get('/sellers', [SellerController::class, 'index']);
 Route::get('/sellers/{id}', [SellerController::class, 'show']);
 
@@ -172,11 +174,17 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
     Route::get('/orders/{order}', [OrderController::class, 'show']);
     Route::post('/orders', [OrderController::class, 'store']);
+    Route::post('/orders/{order}/buyer/confirm', [OrderController::class, 'buyerConfirm']);
+    Route::post('/orders/{order}/cancel', [OrderController::class, 'cancelOrder']);
+    Route::patch('/orders/{order}/items/{item}', [OrderController::class, 'updateItem']);
 
     // Orders (seller)
     Route::get('/seller/orders', [SellerOrderController::class, 'index']);
     Route::get('/seller/orders/{order}', [SellerOrderController::class, 'show']);
     Route::patch('/seller/orders/{order}/status', [SellerOrderController::class, 'updateStatus']);
+    Route::post('/orders/{order}/seller/confirm', [SellerOrderController::class, 'sellerConfirm']);
+    Route::post('/orders/{order}/seller/verify', [SellerOrderController::class, 'verifyOrder']);
+    Route::get('/seller/{seller}/orders/pending', [SellerOrderController::class, 'pendingOrders']);
 
     // Addresses
     Route::get('/addresses', [AddressController::class, 'index']);
@@ -218,6 +226,11 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     // ✅ Preorders (protected)
     Route::get('/preorders', [PreorderController::class, 'index']);
     Route::post('/preorders', [PreorderController::class, 'store']);
+    Route::get('/preorders/{preorder}', [PreorderController::class, 'show']);
+    Route::put('/preorders/{preorder}', [PreorderController::class, 'update']);
+    Route::post('/preorders/{preorder}/cancel', [PreorderController::class, 'cancel']);
+    Route::get('/preorders/consumer', [PreorderController::class, 'consumerPreorders']);
+    Route::get('/preorders/seller', [PreorderController::class, 'sellerPreorders']);
 
     //Messaging (Chat)
     Route::post('/conversations', [ChatController::class, 'createConversation']);
@@ -234,6 +247,10 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::put('/harvests/{harvest}', [SellerHarvestController::class, 'update']);
     Route::delete('/harvests/{harvest}', [SellerHarvestController::class, 'destroy']);
     Route::post('/harvests/{harvest}/publish', [SellerHarvestController::class, 'publish']); // requires verification
+
+    // ✅ Lalamove / Delivery routes
+    Route::post('/lalamove/quotation', [LalamoveController::class, 'getQuotation']);
+    Route::get('/lalamove/orders/{orderId}', [LalamoveController::class, 'getOrderStatus']);
 });
 
 /*
