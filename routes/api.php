@@ -38,6 +38,53 @@ Route::post('/admin/login', [AdminAuthController::class, 'login']);
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 
+// Phone verification routes (public)
+Route::post('/send-phone-verification-code', [AuthController::class, 'sendPhoneVerificationCode'])->middleware('throttle:3,1');
+Route::post('/resend-phone-verification-code', [AuthController::class, 'resendPhoneVerificationCode'])->middleware('throttle:3,1');
+Route::post('/verify-phone', [AuthController::class, 'verifyPhone'])->middleware('throttle:5,1');
+
+// Email verification routes (public)
+Route::post('/send-email-verification-code', [AuthController::class, 'sendEmailVerificationCode'])->middleware('throttle:3,1');
+Route::post('/resend-email-verification-code', [AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
+Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
+
+// Facebook login routes
+Route::get('/auth/facebook', [AuthController::class, 'redirectToFacebook']);
+Route::get('/auth/facebook/callback', [AuthController::class, 'handleFacebookCallback']);
+Route::post('/auth/facebook/callback', [AuthController::class, 'handleFacebookCallback']);
+Route::get('/auth/facebook/url', [AuthController::class, 'getFacebookLoginUrl']);
+Route::post('/auth/facebook/check-user', [AuthController::class, 'checkFacebookUser']); // Check if Facebook user exists
+Route::post('/auth/facebook/signup', [AuthController::class, 'facebookSignup']); // Facebook signup
+
+// Google login routes
+Route::get('/auth/google/url', [AuthController::class, 'getGoogleLoginUrl']);
+Route::post('/auth/google/callback', [AuthController::class, 'handleGoogleCallback']);
+Route::post('/auth/google/signup', [AuthController::class, 'googleSignup']); // Google signup
+
+// SMS test route (for development)
+Route::post('/test-sms', function(Request $request) {
+    $request->validate([
+        'phone_number' => 'required|string',
+    ]);
+
+    $smsService = new \App\Services\SmsService();
+    $result = $smsService->testSms($request->phone_number);
+
+    return response()->json($result);
+})->middleware('throttle:1,1');
+
+// Firebase SMS test route (for development)
+Route::post('/test-firebase-sms', function(Request $request) {
+    $request->validate([
+        'phone_number' => 'required|string',
+    ]);
+
+    $smsService = new \App\Services\SmsService();
+    $result = $smsService->testSms($request->phone_number);
+
+    return response()->json($result);
+})->middleware('throttle:1,1');
+
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
