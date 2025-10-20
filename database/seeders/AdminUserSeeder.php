@@ -15,18 +15,19 @@ class AdminUserSeeder extends Seeder
     {
         // Create admin user
         Admin::updateOrCreate(
-            ['email' => 'admin@onlyfarms.com'],
+            ['email' => 'superadminonlyfarms@gmail.com'],
             [
                 'name' => 'Super Admin',
-                'email' => 'admin@onlyfarms.com',
-                'password' => Hash::make('admin1'),
+                'email' => 'superadminonlyfarms@gmail.com',
+                'password' => Hash::make('SuperAdmin1'),
                 'created_at' => now(),
                 'updated_at' => now(),
             ]
         );
 
         $this->command->info('Admin user created successfully!');
-        $this->command->info('Email: admin@onlyfarms.com');
-        $this->command->info('Password: admin1');
+        $this->command->info('Name: Super Admin');
+        $this->command->info('Email: superadminonlyfarms@gmail.com');
+        $this->command->info('Password: SuperAdmin1');
     }
 }

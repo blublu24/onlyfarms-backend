@@ -10,11 +10,12 @@ class AdminMiddleware
 {
     public function handle(Request $request, Closure $next)
     {
-        $user = $request->user(); // Sanctum authenticated user
+        // Use the admin guard to authenticate
+        $user = $request->user('admin'); // Sanctum authenticated admin user
 
         // Check if user exists and is an Admin instance
         if (!$user || !($user instanceof Admin)) {
-            return response()->json(['message' => 'Unauthorized: Admins only'], 403);
+            return response()->json(['message' => 'Unauthorized: Admins only'], 403);                                                                           
         }
 
         return $next($request);
