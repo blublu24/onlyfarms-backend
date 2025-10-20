@@ -20,6 +20,7 @@ class Order extends Model
         'payment_method',
         'payment_link',
         'payment_status',
+        'preorder_id',
     ];
 
     protected $casts = [
