@@ -12,6 +12,30 @@ Route::get('/health', function () {
     ]);
 });
 
+// Debug endpoint to check database connection and users count
+Route::get('/debug/users', function () {
+    try {
+        $usersCount = \App\Models\User::count();
+        $recentUsers = \App\Models\User::select('id', 'name', 'email', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'database_connected' => true,
+            'total_users' => $usersCount,
+            'recent_users' => $recentUsers
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'database_connected' => false,
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
