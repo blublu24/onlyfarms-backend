@@ -23,16 +23,8 @@ return new class extends Migration
             }
         });
         
-        // Add index only if column exists and index doesn't exist
-        if (Schema::hasColumn('products', 'available_units')) {
-            Schema::table('products', function (Blueprint $table) {
-                // Check if index doesn't exist before adding
-                $indexes = Schema::getConnection()->getDoctrineSchemaManager()->listTableIndexes('products');
-                if (!array_key_exists('products_available_units_index', $indexes)) {
-                    $table->index('available_units');
-                }
-            });
-        }
+        // Note: JSON columns cannot be indexed directly in MySQL
+        // If indexing is needed, use generated columns instead
     }
 
     /**
@@ -41,25 +33,12 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            // Drop indexes first if they exist
-            if (Schema::hasColumn('products', 'available_units')) {
-                $indexes = Schema::getConnection()->getDoctrineSchemaManager()->listTableIndexes('products');
-                if (array_key_exists('products_available_units_index', $indexes)) {
-                    $table->dropIndex(['available_units']);
-                }
-            }
-            
             // Drop columns if they exist
-            $columnsToDrop = [];
             if (Schema::hasColumn('products', 'available_units')) {
-                $columnsToDrop[] = 'available_units';
+                $table->dropColumn('available_units');
             }
             if (Schema::hasColumn('products', 'pieces_per_bundle')) {
-                $columnsToDrop[] = 'pieces_per_bundle';
-            }
-            
-            if (!empty($columnsToDrop)) {
-                $table->dropColumn($columnsToDrop);
+                $table->dropColumn('pieces_per_bundle');
             }
         });
     }
