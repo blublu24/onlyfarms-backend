@@ -12,20 +12,31 @@ Route::get('/health', function () {
     ]);
 });
 
-// Debug endpoint to check database connection and users count
-Route::get('/debug/users', function () {
+// ==================== DEBUG ENDPOINTS ====================
+// These endpoints allow you to check all tables easily
+
+// Debug: Check all tables summary
+Route::get('/debug/tables', function () {
     try {
-        $usersCount = \App\Models\User::count();
-        $recentUsers = \App\Models\User::select('id', 'name', 'email', 'created_at')
-            ->orderBy('created_at', 'desc')
-            ->limit(5)
-            ->get();
-        
         return response()->json([
             'status' => 'success',
             'database_connected' => true,
-            'total_users' => $usersCount,
-            'recent_users' => $recentUsers
+            'tables' => [
+                'users' => \App\Models\User::count(),
+                'sellers' => \DB::table('sellers')->count(),
+                'products' => \DB::table('products')->count(),
+                'orders' => \DB::table('orders')->count(),
+                'order_items' => \DB::table('order_items')->count(),
+                'addresses' => \DB::table('addresses')->count(),
+                'conversations' => \DB::table('conversations')->count(),
+                'messages' => \DB::table('messages')->count(),
+                'crop_schedules' => \DB::table('crop_schedules')->count(),
+                'preorders' => \DB::table('preorders')->count(),
+                'harvests' => \DB::table('harvests')->count(),
+                'product_reviews' => \DB::table('product_reviews')->count(),
+                'admins' => \DB::table('admins')->count(),
+            ],
+            'message' => 'All table counts retrieved successfully'
         ]);
     } catch (\Exception $e) {
         return response()->json([
@@ -35,6 +46,154 @@ Route::get('/debug/users', function () {
         ], 500);
     }
 });
+
+// Debug: Users table
+Route::get('/debug/users', function () {
+    try {
+        $count = \App\Models\User::count();
+        $recent = \App\Models\User::select('id', 'name', 'email', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'users',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Sellers table
+Route::get('/debug/sellers', function () {
+    try {
+        $count = \DB::table('sellers')->count();
+        $recent = \DB::table('sellers')
+            ->select('id', 'user_id', 'business_name', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'sellers',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Products table
+Route::get('/debug/products', function () {
+    try {
+        $count = \DB::table('products')->count();
+        $recent = \DB::table('products')
+            ->select('id', 'name', 'seller_id', 'category', 'stock_kg', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'products',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Orders table
+Route::get('/debug/orders', function () {
+    try {
+        $count = \DB::table('orders')->count();
+        $recent = \DB::table('orders')
+            ->select('id', 'user_id', 'seller_id', 'total', 'status', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'orders',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Preorders table
+Route::get('/debug/preorders', function () {
+    try {
+        $count = \DB::table('preorders')->count();
+        $recent = \DB::table('preorders')
+            ->select('id', 'user_id', 'crop_schedule_id', 'quantity_kg', 'status', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'preorders',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Crop Schedules table
+Route::get('/debug/crop-schedules', function () {
+    try {
+        $count = \DB::table('crop_schedules')->count();
+        $recent = \DB::table('crop_schedules')
+            ->select('id', 'seller_id', 'crop_type', 'expected_harvest_date', 'status', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'crop_schedules',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Harvests table
+Route::get('/debug/harvests', function () {
+    try {
+        $count = \DB::table('harvests')->count();
+        $recent = \DB::table('harvests')
+            ->select('id', 'crop_schedule_id', 'actual_quantity', 'harvest_date', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'harvests',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// ==================== END DEBUG ENDPOINTS ====================
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
