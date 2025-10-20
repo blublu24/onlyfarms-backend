@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Admin;
 use App\Models\CropSchedule;
 use App\Models\Harvest;
+use App\Events\HarvestPublished;
 use Illuminate\Http\Request;
 
 class HarvestController extends Controller
@@ -143,6 +144,9 @@ class HarvestController extends Controller
                 ]);
             }
         }
+
+        // Emit harvest:published event for matching job
+        event(new HarvestPublished($harvest));
 
         return response()->json($harvest->load(['cropSchedule.product', 'cropSchedule.seller', 'product', 'verifier']));
     }

@@ -19,11 +19,17 @@ use App\Http\Controllers\PreorderController;
 use App\Http\Controllers\AdminProductController;
 use App\Http\Controllers\ProductController as MainProductController; // ✅ alias to avoid confusion
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\UnitConversionController;
 
 // NEW: harvest controllers
 use App\Http\Controllers\Seller\HarvestController as SellerHarvestController;
 use App\Http\Controllers\Admin\HarvestController as AdminHarvestController;
 use App\Http\Controllers\Admin\ProductVerificationController as AdminProductVerificationController;
+use App\Http\Controllers\EmailVerificationController;
+use App\Http\Controllers\GmailApiVerificationController;
+use App\Http\Controllers\SmartEmailVerificationController;
+use App\Http\Controllers\SocialLoginController;
+use App\Http\Controllers\LalamoveController;
 
 /*
 |--------------------------------------------------------------------------
@@ -88,19 +94,53 @@ Route::post('/test-firebase-sms', function(Request $request) {
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
+Route::get('/products/{id}/preorder-eligibility', [PreorderController::class, 'checkEligibility']);
 Route::get('/sellers', [SellerController::class, 'index']);
 Route::get('/sellers/{id}', [SellerController::class, 'show']);
 
 // Reviews
 Route::get('/products/{productId}/reviews', [ReviewController::class, 'index']);
 
+// Unit Conversions (public)
+Route::get('/unit-conversions/{vegetableSlug}', [UnitConversionController::class, 'getAvailableUnits']);
+Route::get('/unit-conversions', [UnitConversionController::class, 'index']);
+
 // PayMongo Webhook (public, no auth)
 Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
+    ->withoutMiddleware(['auth:sanctum']);
+
+// Lalamove Webhook (public, no auth - validated by signature)
+Route::patch('/lalamove/webhook', [LalamoveController::class, 'handleWebhook'])
     ->withoutMiddleware(['auth:sanctum']);
 
 // Simulated payment results (for testing)
 Route::get('/payments/success/{id}', fn($id) => "Payment success for order $id");
 Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id");
+
+// Multi-unit order creation and seller verification routes
+Route::middleware(['auth:sanctum'])->group(function () {
+    // Create order with multi-unit support
+    Route::post('/orders', [OrderController::class, 'store']);
+    
+    // Seller verification routes
+    Route::get('/seller/{sellerId}/orders/pending', [OrderController::class, 'getPendingOrders']);
+    Route::post('/orders/{orderId}/seller/verify', [OrderController::class, 'sellerVerify']);
+    
+    // Order cancellation
+    Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancelOrder']);
+    
+    // Seller confirmation (decreases stock)
+    Route::post('/orders/{orderId}/seller/confirm', [OrderController::class, 'sellerConfirmOrder']);
+    
+    // Seller delivery method confirmation (self-delivery vs Lalamove)
+    Route::post('/orders/{orderId}/confirm-delivery-method', [OrderController::class, 'confirmDeliveryMethod']);
+    
+    // Update order item weight
+    Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateOrderItem']);
+    
+    // Buyer confirmation
+    Route::post('/orders/{orderId}/buyer/confirm', [OrderController::class, 'buyerConfirm']);
+});
 
 
 /*
@@ -108,7 +148,7 @@ Route::get('/payments/cancel/{id}', fn($id) => "Payment cancelled for order $id"
 | Admin-Protected Routes (require Sanctum + admin middleware)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+Route::middleware(['auth:admin', 'admin'])->prefix('admin')->group(function () {
     // Admin CRUD for users
     Route::put('/users/{userId}/products/{productId}', [AdminUserController::class, 'updateProduct']);
     Route::get('/users/{id}/products', [AdminUserController::class, 'products']);
@@ -218,6 +258,14 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     // ✅ Preorders (protected)
     Route::get('/preorders', [PreorderController::class, 'index']);
     Route::post('/preorders', [PreorderController::class, 'store']);
+    Route::get('/preorders/consumer', [PreorderController::class, 'consumerPreorders']);
+    Route::get('/preorders/seller', [PreorderController::class, 'sellerPreorders']);
+    Route::get('/preorders/{id}', [PreorderController::class, 'show']);
+    Route::put('/preorders/{id}', [PreorderController::class, 'update']);
+    Route::post('/preorders/{id}/accept', [PreorderController::class, 'accept']);
+    Route::post('/preorders/{id}/fulfill', [PreorderController::class, 'fulfill']);
+    Route::post('/preorders/{id}/cancel', [PreorderController::class, 'cancel']);
+    Route::get('/products/{id}/stock-info', [PreorderController::class, 'getStockInfo']);
 
     //Messaging (Chat)
     Route::post('/conversations', [ChatController::class, 'createConversation']);
@@ -234,6 +282,14 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::put('/harvests/{harvest}', [SellerHarvestController::class, 'update']);
     Route::delete('/harvests/{harvest}', [SellerHarvestController::class, 'destroy']);
     Route::post('/harvests/{harvest}/publish', [SellerHarvestController::class, 'publish']); // requires verification
+
+    // ✅ Lalamove Delivery endpoints
+    Route::post('/lalamove/quotation', [LalamoveController::class, 'getQuotation']);
+    Route::post('/lalamove/orders', [LalamoveController::class, 'placeOrder']);
+    Route::get('/lalamove/orders/{lalamoveOrderId}', [LalamoveController::class, 'getOrderStatus']);
+    Route::delete('/lalamove/orders/{lalamoveOrderId}', [LalamoveController::class, 'cancelOrder']);
+    Route::post('/lalamove/orders/{lalamoveOrderId}/priority-fee', [LalamoveController::class, 'addPriorityFee']);
+    Route::get('/lalamove/service-types', [LalamoveController::class, 'getServiceTypes']);
 });
 
 /*
@@ -241,7 +297,7 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
 | Admin Routes (require admin middleware)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum', 'admin'])->group(function () {
+Route::middleware(['auth:admin', 'admin'])->group(function () {
     // Admin Harvest Management
     Route::get('/admin/harvests', [AdminHarvestController::class, 'index']);
     Route::get('/admin/harvests/{harvest}', [AdminHarvestController::class, 'show']);

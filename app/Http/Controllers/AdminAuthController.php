@@ -22,8 +22,8 @@ class AdminAuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        // Create token using Sanctum
-        $token = $admin->createToken('admin_token')->plainTextToken;
+        // Create token using Sanctum with admin guard
+        $token = $admin->createToken('admin_token', ['admin'])->plainTextToken;
 
         return response()->json([
             'admin' => $admin,

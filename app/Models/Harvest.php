@@ -29,6 +29,17 @@ class Harvest extends Model
         'created_by_id',
         'photos_json',
         'harvest_image',
+        
+        // New fields for preorder matching
+        'variation_type',
+        'variation_name',
+        'unit_key',
+        'actual_weight_kg',
+        'quantity_units',
+        'quality_grade',
+        'allocated_weight_kg',
+        'available_weight_kg',
+        'matching_completed_at',
     ];
 
     protected $casts = [
@@ -41,6 +52,12 @@ class Harvest extends Model
         'published' => 'boolean',
         'published_at' => 'datetime',
         'photos_json' => 'array',
+        
+        // New field casts
+        'actual_weight_kg' => 'decimal:4',
+        'allocated_weight_kg' => 'decimal:4',
+        'available_weight_kg' => 'decimal:4',
+        'matching_completed_at' => 'datetime',
     ];
 
     /**
@@ -94,5 +111,64 @@ class Harvest extends Model
     public function scopePublished($query)
     {
         return $query->where('published', true);
+    }
+
+    /**
+     * Scope to get harvests that can be matched to preorders.
+     */
+    public function scopeMatchable($query)
+    {
+        return $query->where('published', true)
+                    ->where('verified', true)
+                    ->whereNull('matching_completed_at');
+    }
+
+    /**
+     * A harvest can have many preorders allocated to it.
+     */
+    public function allocatedPreorders()
+    {
+        return $this->hasMany(Preorder::class, 'harvest_date_ref', 'id');
+    }
+
+    /**
+     * Check if harvest can be matched to preorders.
+     */
+    public function canBeMatched(): bool
+    {
+        return $this->published && 
+               $this->verified && 
+               $this->matching_completed_at === null &&
+               $this->available_weight_kg > 0;
+    }
+
+    /**
+     * Get remaining available weight for allocation.
+     */
+    public function getRemainingWeight(): float
+    {
+        return $this->available_weight_kg - $this->allocated_weight_kg;
+    }
+
+    /**
+     * Allocate weight to preorders.
+     */
+    public function allocateWeight(float $weight): bool
+    {
+        if ($weight > $this->getRemainingWeight()) {
+            return false;
+        }
+
+        $this->allocated_weight_kg += $weight;
+        return $this->save();
+    }
+
+    /**
+     * Mark matching as completed.
+     */
+    public function markMatchingCompleted(): bool
+    {
+        $this->matching_completed_at = now();
+        return $this->save();
     }
 }

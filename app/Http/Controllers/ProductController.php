@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Product;
+use App\Services\ProductRelevanceService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 
@@ -33,17 +34,11 @@ class ProductController extends Controller
 
         // Price range filtering
         if ($request->has('min_price') && $request->min_price) {
-            $query->where(function($q) use ($request) {
-                $q->where('price_kg', '>=', $request->min_price)
-                  ->orWhere('price_bunches', '>=', $request->min_price);
-            });
+            $query->where('price_per_kg', '>=', $request->min_price);
         }
 
         if ($request->has('max_price') && $request->max_price) {
-            $query->where(function($q) use ($request) {
-                $q->where('price_kg', '<=', $request->max_price)
-                  ->orWhere('price_bunches', '<=', $request->max_price);
-            });
+            $query->where('price_per_kg', '<=', $request->max_price);
         }
 
         // Rating filtering
@@ -53,7 +48,7 @@ class ProductController extends Controller
 
         // Stock filtering
         if ($request->has('in_stock_only') && $request->in_stock_only) {
-            $query->where('stocks', '>', 0);
+            $query->where('stock_kg', '>', 0);
         }
 
         // 🔍 NEW: Sorting
@@ -66,16 +61,22 @@ class ProductController extends Controller
                     $query->orderBy('created_at', 'asc');
                     break;
                 case 'price_low':
-                    $query->orderByRaw('LEAST(COALESCE(price_kg, 999999), COALESCE(price_bunches, 999999)) ASC');
+                    $query->orderBy('price_per_kg', 'asc');
                     break;
                 case 'price_high':
-                    $query->orderByRaw('GREATEST(COALESCE(price_kg, 0), COALESCE(price_bunches, 0)) DESC');
+                    $query->orderBy('price_per_kg', 'desc');
                     break;
                 case 'rating':
                     $query->orderBy('avg_rating', 'desc');
                     break;
+                case 'most_sold':
+                    $query->orderBy('total_sold', 'desc');
+                    break;
                 case 'name':
                     $query->orderBy('product_name', 'asc');
+                    break;
+                case 'relevance':
+                    // Relevance sorting will be handled after fetching products
                     break;
                 default:
                     $query->orderBy('created_at', 'desc');
@@ -84,7 +85,19 @@ class ProductController extends Controller
             $query->orderBy('created_at', 'desc'); // Default sorting
         }
 
-        $products = $query->get()->map(function ($p) {
+        // Handle relevance-based search
+        if ($request->has('search') && $request->search && 
+            ($request->sort_by === 'relevance' || !$request->has('sort_by'))) {
+            // Fetch products first, then calculate relevance scores
+            $products = $query->get();
+            $relevanceService = new ProductRelevanceService();
+            $products = $relevanceService->calculateAndSortByRelevance($products, $request->search);
+        } else {
+            // Normal query execution
+            $products = $query->get();
+        }
+
+        $products = $products->map(function ($p) {
             // ✅ Get the image URL from the model (which handles storage/ prefix)
             $imageUrl = $p->image_url;
             
@@ -94,19 +107,29 @@ class ProductController extends Controller
                 $imageUrl = $baseUrl . '/' . $imageUrl;
             }
             
+            // Get vegetable slug and available units
+            $vegetableSlug = $p->getVegetableSlug();
+            $availableUnits = \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
+            
             return [
                 'product_id' => $p->product_id,
                 'product_name' => $p->product_name,
                 'image_url' => $imageUrl, // ✅ Full URL
                 'fixed_image_url' => $imageUrl, // ✅ Full URL
-                'price_kg' => $p->price_kg,
-                'price_bunches' => $p->price_bunches,
-                'stocks' => $p->stocks,
+                'stock_kg' => $p->stock_kg,
+                'price_per_kg' => $p->price_per_kg,
+                'available_units' => $availableUnits, // ✅ Correct units based on vegetable type
+                'vegetable_slug' => $vegetableSlug, // ✅ For frontend reference
                 'description' => $p->description,
                 'category' => $p->category,
                 'seller_name' => $p->seller?->shop_name ?? 'Unknown Seller', // ✅ shop_name from sellers table
                 'seller_id' => $p->seller_id,
                 'updated_at' => $p->updated_at, // Add for cache busting
+                // Analytics fields
+                'total_sold' => $p->total_sold ?? 0,
+                'avg_rating' => $p->avg_rating ?? 0,
+                'ratings_count' => $p->ratings_count ?? 0,
+                'relevance_score' => $p->relevance_score ?? null,
             ];
         });
 
@@ -122,6 +145,8 @@ class ProductController extends Controller
     public function show($id)
     {
         $product = Product::with('user')->findOrFail($id);
+        
+        
         $imageUrl = $product->image_url; // ✅ Use model accessor
         
         // Construct full URL for frontend
@@ -132,6 +157,24 @@ class ProductController extends Controller
         
         $product->full_image_url = $imageUrl;
         $product->fixed_image_url = $imageUrl;
+        
+        // Get vegetable slug for reference
+        $vegetableSlug = $product->getVegetableSlug();
+        
+        // Ensure analytics fields are included (same as index method)
+        $product->total_sold = $product->total_sold ?? 0;
+        $product->avg_rating = $product->avg_rating ?? 0;
+        $product->ratings_count = $product->ratings_count ?? 0;
+        
+        // Use the actual available_units from the database (don't override)
+        // If no units are set, fallback to default units for the vegetable type
+        if (!$product->available_units || empty($product->available_units)) {
+            $availableUnits = \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
+            $product->available_units = $availableUnits;
+        }
+        $product->vegetable_slug = $vegetableSlug;
+
+        // Variation prices and stocks are already loaded from the database
 
         return response()->json([
             'message' => 'Product fetched successfully',
@@ -150,44 +193,62 @@ class ProductController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        // Pre-process the request data to handle empty strings
-        $requestData = $request->all();
-        if (isset($requestData['price_kg']) && $requestData['price_kg'] === '') {
-            $requestData['price_kg'] = null;
-        }
-        if (isset($requestData['price_bunches']) && $requestData['price_bunches'] === '') {
-            $requestData['price_bunches'] = null;
-        }
-
-        // Merge the processed data back into the request
-        $request->merge($requestData);
-
         $validated = $request->validate([
             'product_name' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'category' => 'nullable|string|max:255',
-            'price_kg' => 'nullable|numeric|min:0',
-            'price_bunches' => 'nullable|numeric|min:0',
-            'stocks' => 'required|numeric|min:0',
-            'unit' => 'required|string|max:50',
-            'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'stock_kg' => 'required|numeric|min:0',
+            'price_per_kg' => 'required|numeric|min:0',
+            'available_units' => 'required|string', // JSON string
+            'pieces_per_bundle' => 'nullable|integer|min:1',
+            'variation_type' => 'nullable|string|max:255',
+            'images.*' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            
+            // Variation prices
+            'premium_price_per_kg' => 'nullable|numeric|min:0',
+            'type_a_price_per_kg' => 'nullable|numeric|min:0',
+            'type_b_price_per_kg' => 'nullable|numeric|min:0',
+            
+            // Variation stocks
+            'premium_stock_kg' => 'nullable|numeric|min:0',
+            'type_a_stock_kg' => 'nullable|numeric|min:0',
+            'type_b_stock_kg' => 'nullable|numeric|min:0',
         ]);
 
-        // Ensure at least one price is provided
-        $hasPrice = (!empty($validated['price_kg']) && $validated['price_kg'] > 0) ||
-                    (!empty($validated['price_bunches']) && $validated['price_bunches'] > 0);
-        
-        if (!$hasPrice) {
-            return response()->json(['error' => 'At least one price (price_kg or price_bunches) must be provided and greater than 0'], 422);
+        // Parse available_units from JSON string
+        $availableUnits = json_decode($validated['available_units'], true);
+        if (!$availableUnits || !is_array($availableUnits) || empty($availableUnits)) {
+            return response()->json(['error' => 'Available units must be a valid array with at least one unit'], 422);
         }
 
-        if ($request->hasFile('image_url')) {
-            $path = $request->file('image_url')->store('products', 'public');
-            $validated['image_url'] = $path;
+        // Validate pieces_per_bundle if tali is in available units
+        if (in_array('tali', $availableUnits) && empty($validated['pieces_per_bundle'])) {
+            return response()->json(['error' => 'Pieces per bundle is required when tali unit is selected'], 422);
+        }
+
+        // Handle multiple images
+        $imagePaths = [];
+        if ($request->hasFile('images')) {
+            foreach ($request->file('images') as $index => $image) {
+                if ($image) {
+                    $path = $image->store('products', 'public');
+                    $imagePaths[] = $path;
+                }
+            }
+        }
+        
+        // Use the first image as the main image_url for backward compatibility
+        if (!empty($imagePaths)) {
+            $validated['image_url'] = $imagePaths[0];
+            // Store additional images (skip the first one as it's already in image_url)
+            if (count($imagePaths) > 1) {
+                $validated['additional_images'] = array_slice($imagePaths, 1);
+            }
         }
 
         $validated['seller_id'] = $user->id;
-
+        
+        // Convert available_units back to array for storage
+        $validated['available_units'] = $availableUnits;
 
         $product = Product::create($validated);
         $imageUrl = $product->image_url; // ✅ Use model accessor
@@ -219,39 +280,39 @@ class ProductController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        // Pre-process the request data to handle empty strings
-        $requestData = $request->all();
-        if (isset($requestData['price_kg']) && $requestData['price_kg'] === '') {
-            $requestData['price_kg'] = null;
-        }
-        if (isset($requestData['price_bunches']) && $requestData['price_bunches'] === '') {
-            $requestData['price_bunches'] = null;
-        }
-
-        // Merge the processed data back into the request
-        $request->merge($requestData);
-
         $validated = $request->validate([
             'product_name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
-            'category' => 'nullable|string|max:255',
-            'price_kg' => 'nullable|numeric|min:0',
-            'price_bunches' => 'nullable|numeric|min:0',
-            'stocks' => 'sometimes|numeric|min:0',
-            'unit' => 'sometimes|string|max:50',
+            'stock_kg' => 'sometimes|numeric|min:0',
+            'price_per_kg' => 'sometimes|numeric|min:0',
+            'available_units' => 'sometimes|string', // JSON string
+            'pieces_per_bundle' => 'nullable|integer|min:1',
             'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            
+            // Variation prices
+            'premium_price_per_kg' => 'nullable|numeric|min:0',
+            'type_a_price_per_kg' => 'nullable|numeric|min:0',
+            'type_b_price_per_kg' => 'nullable|numeric|min:0',
+            
+            // Variation stocks
+            'premium_stock_kg' => 'nullable|numeric|min:0',
+            'type_a_stock_kg' => 'nullable|numeric|min:0',
+            'type_b_stock_kg' => 'nullable|numeric|min:0',
         ]);
 
-        // Debug: Log what we received
-        \Log::info('Product update request data:', $request->all());
-        \Log::info('Validated data:', $validated);
-
-        // Ensure at least one price is provided
-        $hasPrice = (!empty($validated['price_kg']) && $validated['price_kg'] > 0) ||
-                    (!empty($validated['price_bunches']) && $validated['price_bunches'] > 0);
-        
-        if (!$hasPrice) {
-            return response()->json(['error' => 'At least one price (price_kg or price_bunches) must be provided and greater than 0'], 422);
+        // Parse available_units from JSON string if provided
+        if (isset($validated['available_units'])) {
+            $availableUnits = json_decode($validated['available_units'], true);
+            if (!$availableUnits || !is_array($availableUnits) || empty($availableUnits)) {
+                return response()->json(['error' => 'Available units must be a valid array with at least one unit'], 422);
+            }
+            
+            // Validate pieces_per_bundle if tali is in available units
+            if (in_array('tali', $availableUnits) && empty($validated['pieces_per_bundle'])) {
+                return response()->json(['error' => 'Pieces per bundle is required when tali unit is selected'], 422);
+            }
+            
+            $validated['available_units'] = $availableUnits;
         }
 
 
