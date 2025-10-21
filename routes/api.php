@@ -40,11 +40,11 @@ use App\Http\Controllers\SocialLoginController;
 // Admin Auth
 Route::post('/admin/login', [AdminAuthController::class, 'login']);
 
-// 🚨 TEMPORARY: Setup admin account - DELETE AFTER USE!
+// 🚨 TEMPORARY: Create admin - visit https://your-app.railway.app/api/setup-admin-once then DELETE THIS!
 Route::get('/setup-admin-once', function () {
     try {
         if (\App\Models\Admin::where('email', 'superadminonlyfarms@gmail.com')->exists()) {
-            return response()->json(['message' => 'Admin already exists!'], 400);
+            return response()->json(['error' => 'Admin already exists!'], 400);
         }
         
         \App\Models\Admin::create([
@@ -57,12 +57,12 @@ Route::get('/setup-admin-once', function () {
         
         return response()->json([
             'success' => true,
-            'message' => '✅ Admin created successfully!',
+            'message' => '✅ ADMIN CREATED IN RAILWAY DATABASE!',
             'credentials' => [
                 'email' => 'superadminonlyfarms@gmail.com',
                 'password' => 'SuperAdmin1'
             ],
-            'warning' => '🚨 DELETE THE /setup-admin-once ROUTE FROM routes/api.php NOW!'
+            'warning' => '🚨 DELETE /setup-admin-once ROUTE NOW!'
         ]);
     } catch (\Exception $e) {
         return response()->json(['error' => $e->getMessage()], 500);
