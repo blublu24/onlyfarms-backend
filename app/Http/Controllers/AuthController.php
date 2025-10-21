@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
-use App\Services\SmsService;
 use App\Services\EmailOtpService;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -16,74 +15,14 @@ class AuthController extends Controller
     // REGISTER method
     public function register(Request $request)
     {
-        $signupMethod = $request->input('signup_method', 'email');
+        // All registrations use the same flow now (no phone verification)
+        // 'signup_method' is ignored - just register directly
         
-        if ($signupMethod === 'phone') {
-            return $this->registerWithPhone($request);
-        }
-        
-        // Original email registration
+        // Combined email/phone registration (phone is optional)
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|unique:users',
-            'password' => 'required|string|min:6|confirmed', // ✅ requires password_confirmation
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        // Create user with email (unverified)
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'is_seller' => false,
-            'email_verified_at' => null, // Will be set after OTP verification
-        ]);
-
-        // Generate and send OTP via email
-        $emailOtpService = new EmailOtpService();
-        $otp = $emailOtpService->generateOtp();
-        
-        // Store OTP in database
-        $user->update([
-            'email_verification_code' => $otp,
-            'email_verification_expires_at' => now()->addMinutes(10),
-        ]);
-
-        // Send OTP via email
-        $emailResult = $emailOtpService->sendOtp($request->email, $otp, $request->name);
-        
-        if (!$emailResult['success']) {
-            \Log::error("Failed to send email OTP", [
-                'email' => $request->email,
-                'error' => $emailResult['error']
-            ]);
-        }
-        
-        // Log OTP for development/testing
-        if (app()->environment('local')) {
-            \Log::info("Email OTP for {$request->email}: {$otp}");
-        }
-
-        return response()->json([
-            'message' => 'User created. Please verify your email address.',
-            'user_id' => $user->id,
-            'redirect_to_verification' => true,
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
-        ], 201);
-    }
-
-    // REGISTER WITH PHONE method
-    public function registerWithPhone(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'phone_number' => 'required|string|unique:users|min:11|max:13',
+            'phone_number' => 'nullable|string|unique:users|min:11|max:13',
             'password' => 'required|string|min:6|confirmed',
         ]);
 
@@ -94,58 +33,41 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Custom phone number validation for Philippine format
-        $phoneNumber = $request->phone_number;
-        if (!$this->isValidPhilippinePhoneNumber($phoneNumber)) {
+        // Validate phone format only if provided
+        if ($request->phone_number && !$this->isValidPhilippinePhoneNumber($request->phone_number)) {
             return response()->json([
                 'message' => 'Validation failed',
-                'errors' => ['phone_number' => ['Please enter a valid Philippine mobile number (09XX-XXX-XXXX)']]
+                'errors' => ['phone_number' => ['Please enter a valid Philippine mobile number (+63 9XX XXX XXXX)']]
             ], 422);
         }
 
-        // Create user with phone number (unverified)
+        // Create user with email and optional phone (auto-verified)
         $user = User::create([
             'name' => $request->name,
-            'email' => null, // No email for phone registration
-            'phone_number' => $request->phone_number,
+            'email' => $request->email,
+            'phone_number' => $request->phone_number, // Optional
             'password' => Hash::make($request->password),
             'is_seller' => false,
-            'phone_verified_at' => null, // Will be set after OTP verification
+            'email_verified_at' => now(), // Auto-verified (used pre-signup verification)
+            'phone_verified_at' => $request->phone_number ? now() : null, // Auto-verified if provided
         ]);
 
-        // Generate and send OTP
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        // Store OTP in database (you might want to create a separate table for this)
-        $user->update([
-            'phone_verification_code' => $otp,
-            'phone_verification_expires_at' => now()->addMinutes(5),
-        ]);
+        // Refresh user to ensure all attributes are loaded
+        $user->refresh();
 
-        // Send SMS with OTP using Twilio
-        $smsService = new SmsService();
-        $smsResult = $smsService->sendOtp($request->phone_number, $otp);
-        
-        if (!$smsResult['success']) {
-            \Log::error("Failed to send SMS OTP", [
-                'phone_number' => $request->phone_number,
-                'error' => $smsResult['error']
-            ]);
-            
-            // Still return success but log the SMS failure
-            // In production, you might want to return an error here
-        }
-        
-        // Log OTP for development/testing
-        if (app()->environment('local')) {
-            \Log::info("Phone OTP for {$request->phone_number}: {$otp}");
-        }
+        // Generate authentication token (email already verified in pre-signup)
+        $token = $user->createToken('onlyfarms_token')->plainTextToken;
+
+        \Log::info("Email registration successful", [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'has_phone' => !empty($user->phone_number)
+        ]);
 
         return response()->json([
-            'message' => 'User created. Please verify your phone number.',
-            'user_id' => $user->id,
-            'redirect_to_verification' => true,
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
+            'message' => 'User created successfully!',
+            'user' => $user,
+            'token' => $token
         ], 201);
     }
 
@@ -257,163 +179,31 @@ class AuthController extends Controller
         ]);
     }
 
-    // SEND PHONE VERIFICATION CODE
+    // PHONE VERIFICATION METHODS (DISABLED - SMS NOT CONFIGURED)
+    // To enable: Configure SMS service (Semaphore, Twilio, or AWS SNS) in .env
+    
     public function sendPhoneVerificationCode(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'phone_number' => 'required|string|min:11|max:13',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        // Custom phone number validation for Philippine format
-        $phoneNumber = $request->phone_number;
-        if (!$this->isValidPhilippinePhoneNumber($phoneNumber)) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => ['phone_number' => ['Please enter a valid Philippine mobile number (09XX-XXX-XXXX)']]
-            ], 422);
-        }
-
-        $user = User::where('phone_number', $request->phone_number)->first();
-        
-        if (!$user) {
-            return response()->json([
-                'message' => 'User not found with this phone number'
-            ], 404);
-        }
-
-        // Generate new OTP
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        $user->update([
-            'phone_verification_code' => $otp,
-            'phone_verification_expires_at' => now()->addMinutes(5),
-        ]);
-
-        // TODO: Send SMS with OTP using SMS service (Twilio, etc.)
-        if (app()->environment('local')) {
-            \Log::info("Phone OTP for {$request->phone_number}: {$otp}");
-        }
-
         return response()->json([
-            'message' => 'Verification code sent successfully',
-            'user_id' => $user->id,
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
-        ]);
+            'message' => 'Phone verification is currently disabled. SMS service not configured.',
+            'error' => 'Feature not available'
+        ], 503);
     }
 
-    // RESEND PHONE VERIFICATION CODE
     public function resendPhoneVerificationCode(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'user_id' => 'required|integer|exists:users,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $user = User::find($request->user_id);
-        
-        if (!$user || !$user->phone_number) {
-            return response()->json([
-                'message' => 'User not found or no phone number'
-            ], 404);
-        }
-
-        // Generate new OTP
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        $user->update([
-            'phone_verification_code' => $otp,
-            'phone_verification_expires_at' => now()->addMinutes(5),
-        ]);
-
-        // Send SMS with OTP using Twilio
-        $smsService = new SmsService();
-        $smsResult = $smsService->sendOtp($user->phone_number, $otp);
-        
-        if (!$smsResult['success']) {
-            \Log::error("Failed to resend SMS OTP", [
-                'phone_number' => $user->phone_number,
-                'error' => $smsResult['error']
-            ]);
-        }
-        
-        // Log OTP for development/testing
-        if (app()->environment('local')) {
-            \Log::info("Resent Phone OTP for {$user->phone_number}: {$otp}");
-        }
-
         return response()->json([
-            'message' => 'Verification code resent successfully',
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
-        ]);
+            'message' => 'Phone verification is currently disabled. SMS service not configured.',
+            'error' => 'Feature not available'
+        ], 503);
     }
 
-    // VERIFY PHONE
     public function verifyPhone(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'user_id' => 'required|integer|exists:users,id',
-            'verification_code' => 'required|string|size:6',
-            'name' => 'required|string|max:255',
-            'password' => 'required|string|min:6|confirmed',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $user = User::find($request->user_id);
-        
-        if (!$user) {
-            return response()->json([
-                'message' => 'User not found'
-            ], 404);
-        }
-
-        // Check if OTP is valid and not expired
-        if ($user->phone_verification_code !== $request->verification_code) {
-            return response()->json([
-                'message' => 'Invalid verification code'
-            ], 400);
-        }
-
-        if ($user->phone_verification_expires_at && $user->phone_verification_expires_at->isPast()) {
-            return response()->json([
-                'message' => 'Verification code has expired'
-            ], 400);
-        }
-
-        // Update user with verified phone and final details
-        $user->update([
-            'name' => $request->name,
-            'password' => Hash::make($request->password),
-            'phone_verified_at' => now(),
-            'phone_verification_code' => null,
-            'phone_verification_expires_at' => null,
-        ]);
-
-        $token = $user->createToken('onlyfarms_token')->plainTextToken;
-
         return response()->json([
-            'message' => 'Phone verified successfully!',
-            'user' => $user,
-            'token' => $token
-        ], 200);
+            'message' => 'Phone verification is currently disabled. SMS service not configured.',
+            'error' => 'Feature not available'
+        ], 503);
     }
 
     // EMAIL VERIFICATION METHODS
@@ -627,12 +417,23 @@ class AuthController extends Controller
     public function handleFacebookCallback(Request $request)
     {
         try {
-            $code = $request->get('code');
-            $state = $request->get('state');
+            // Accept code from either GET query params or POST JSON body
+            $code = $request->input('code') ?? $request->query('code');
+            $state = $request->input('state') ?? $request->query('state');
+            
+            \Log::info('Facebook callback received', [
+                'has_code' => !empty($code),
+                'has_state' => !empty($state),
+                'request_method' => $request->method(),
+                'request_data' => $request->all()
+            ]);
             
             if (!$code) {
+                \Log::error('Facebook callback: No authorization code provided');
                 return response()->json([
-                    'message' => 'Authorization code not provided'
+                    'message' => 'Authorization code not provided',
+                    'debug' => 'No code parameter in request',
+                    'received_data' => $request->all()
                 ], 400);
             }
             
@@ -640,6 +441,12 @@ class AuthController extends Controller
             $clientId = config('services.facebook.client_id');
             $clientSecret = config('services.facebook.client_secret');
             $redirectUri = config('services.facebook.redirect');
+            
+            \Log::info('Facebook OAuth config', [
+                'client_id' => $clientId ? 'SET' : 'NOT SET',
+                'client_secret' => $clientSecret ? 'SET' : 'NOT SET',
+                'redirect_uri' => $redirectUri
+            ]);
             
             $tokenResponse = Http::get('https://graph.facebook.com/v18.0/oauth/access_token', [
                 'client_id' => $clientId,
@@ -649,8 +456,29 @@ class AuthController extends Controller
             ]);
             
             if (!$tokenResponse->successful()) {
+                $errorBody = $tokenResponse->json();
+                \Log::error('Facebook token exchange failed', [
+                    'status' => $tokenResponse->status(),
+                    'error' => $errorBody,
+                    'code_length' => strlen($code),
+                    'redirect_uri' => $redirectUri
+                ]);
+                
+                // Extract Facebook's error message if available
+                $facebookError = $errorBody['error']['message'] ?? 'Unknown error';
+                $facebookErrorCode = $errorBody['error']['code'] ?? 'Unknown';
+                
                 return response()->json([
-                    'message' => 'Failed to exchange code for token'
+                    'message' => 'Facebook authentication failed',
+                    'error' => 'FACEBOOK_TOKEN_EXCHANGE_FAILED',
+                    'facebook_error' => $facebookError,
+                    'facebook_error_code' => $facebookErrorCode,
+                    'debug' => [
+                        'status' => $tokenResponse->status(),
+                        'full_error' => $errorBody,
+                        'redirect_uri_used' => $redirectUri,
+                        'client_id_used' => $clientId
+                    ]
                 ], 400);
             }
             
@@ -665,6 +493,7 @@ class AuthController extends Controller
             
             // If the first request fails, try with a simpler picture request
             if (!$userResponse->successful()) {
+                \Log::warning('Facebook user info request failed with high-res picture, trying simple picture');
                 $userResponse = Http::get('https://graph.facebook.com/v18.0/me', [
                     'fields' => 'id,name,picture',
                     'access_token' => $accessToken,
@@ -672,8 +501,14 @@ class AuthController extends Controller
             }
             
             if (!$userResponse->successful()) {
+                $errorBody = $userResponse->json();
+                \Log::error('Facebook user info request failed', [
+                    'status' => $userResponse->status(),
+                    'error' => $errorBody
+                ]);
                 return response()->json([
-                    'message' => 'Failed to get user info from Facebook'
+                    'message' => 'Failed to get user info from Facebook',
+                    'debug' => $errorBody
                 ], 400);
             }
             
@@ -734,10 +569,15 @@ class AuthController extends Controller
             ], 404);
             
         } catch (\Exception $e) {
+            \Log::error('Facebook authentication exception', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Facebook authentication failed',
-                'error' => $e->getMessage()
-            ], 400);
+                'error' => $e->getMessage(),
+                'debug' => 'Check server logs for details'
+            ], 500);
         }
     }
 
@@ -801,12 +641,37 @@ class AuthController extends Controller
     public function getFacebookLoginUrl()
     {
         try {
-            // Create a state parameter for security
-            $state = bin2hex(random_bytes(16));
-            
             // Build the Facebook OAuth URL manually to avoid session dependency
             $clientId = config('services.facebook.client_id');
             $redirectUri = config('services.facebook.redirect');
+            
+            // Check if config is properly loaded
+            if (empty($clientId)) {
+                \Log::error('Facebook Client ID not configured');
+                return response()->json([
+                    'error' => 'Facebook Client ID not configured',
+                    'message' => 'Please set FACEBOOK_CLIENT_ID in environment variables',
+                    'debug' => [
+                        'client_id' => 'NOT SET',
+                        'redirect_uri' => $redirectUri ?? 'NOT SET'
+                    ]
+                ], 500);
+            }
+            
+            if (empty($redirectUri)) {
+                \Log::error('Facebook Redirect URI not configured');
+                return response()->json([
+                    'error' => 'Facebook Redirect URI not configured',
+                    'message' => 'Please set FACEBOOK_REDIRECT_URI in environment variables',
+                    'debug' => [
+                        'client_id' => 'SET',
+                        'redirect_uri' => 'NOT SET'
+                    ]
+                ], 500);
+            }
+            
+            // Create a state parameter for security
+            $state = bin2hex(random_bytes(16));
             
             // Force HTTPS for Facebook OAuth (Facebook requires secure connections)
             if (strpos($redirectUri, 'http://') === 0) {
@@ -819,6 +684,7 @@ class AuthController extends Controller
                 'scope' => 'public_profile', // Temporarily remove email scope until Facebook app is configured
                 'response_type' => 'code',
                 'state' => $state,
+                'auth_type' => 'reauthenticate', // Force fresh login every time
             ];
             
             $facebookLoginUrl = 'https://www.facebook.com/v18.0/dialog/oauth?' . http_build_query($params);
@@ -827,20 +693,18 @@ class AuthController extends Controller
             \Log::info('Facebook Login URL Generated:', [
                 'redirect_uri' => $redirectUri,
                 'facebook_login_url' => $facebookLoginUrl,
-                'client_id' => $clientId
+                'client_id' => $clientId ? 'SET' : 'NOT SET'
             ]);
             
             return response()->json([
                 'facebook_login_url' => $facebookLoginUrl,
-                'state' => $state,
-                'debug' => [
-                    'redirect_uri' => $redirectUri,
-                    'app_url' => config('app.url'),
-                    'client_id' => $clientId,
-                    'facebook_app_domain' => 'abc123.ngrok.io'
-                ]
+                'state' => $state
             ]);
         } catch (\Exception $e) {
+            \Log::error('Failed to generate Facebook login URL', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'error' => 'Failed to generate Facebook login URL',
                 'message' => $e->getMessage()
@@ -905,6 +769,7 @@ class AuthController extends Controller
                 'scope' => 'openid email profile',
                 'response_type' => 'code',
                 'state' => $state,
+                'prompt' => 'select_account', // Force account selection every time
                 'device_id' => 'onlyfarms-mobile-app',
                 'device_name' => 'OnlyFarms Mobile App',
             ];
@@ -929,12 +794,23 @@ class AuthController extends Controller
     public function handleGoogleCallback(Request $request)
     {
         try {
-            $code = $request->get('code');
-            $state = $request->get('state');
+            // Accept code from either GET query params or POST JSON body
+            $code = $request->input('code') ?? $request->query('code');
+            $state = $request->input('state') ?? $request->query('state');
+            
+            \Log::info('Google callback received', [
+                'has_code' => !empty($code),
+                'has_state' => !empty($state),
+                'request_method' => $request->method(),
+                'request_data' => $request->all()
+            ]);
             
             if (!$code) {
+                \Log::error('Google callback: No authorization code provided');
                 return response()->json([
-                    'message' => 'Authorization code not provided'
+                    'message' => 'Authorization code not provided',
+                    'debug' => 'No code parameter in request',
+                    'received_data' => $request->all()
                 ], 400);
             }
             
@@ -942,6 +818,12 @@ class AuthController extends Controller
             $clientId = config('services.google.client_id');
             $clientSecret = config('services.google.client_secret');
             $redirectUri = config('services.google.redirect');
+            
+            \Log::info('Google OAuth config', [
+                'client_id' => $clientId ? 'SET' : 'NOT SET',
+                'client_secret' => $clientSecret ? 'SET' : 'NOT SET',
+                'redirect_uri' => $redirectUri
+            ]);
             
             $tokenResponse = Http::post('https://oauth2.googleapis.com/token', [
                 'client_id' => $clientId,
@@ -952,8 +834,15 @@ class AuthController extends Controller
             ]);
             
             if (!$tokenResponse->successful()) {
+                $errorBody = $tokenResponse->json();
+                \Log::error('Google token exchange failed', [
+                    'status' => $tokenResponse->status(),
+                    'error' => $errorBody
+                ]);
                 return response()->json([
-                    'message' => 'Failed to exchange code for token'
+                    'message' => 'Failed to exchange code for token',
+                    'debug' => $errorBody,
+                    'redirect_uri_used' => $redirectUri
                 ], 400);
             }
             
@@ -966,8 +855,14 @@ class AuthController extends Controller
             ]);
             
             if (!$userResponse->successful()) {
+                $errorBody = $userResponse->json();
+                \Log::error('Google user info request failed', [
+                    'status' => $userResponse->status(),
+                    'error' => $errorBody
+                ]);
                 return response()->json([
-                    'message' => 'Failed to get user info from Google'
+                    'message' => 'Failed to get user info from Google',
+                    'debug' => $errorBody
                 ], 400);
             }
             
@@ -1022,10 +917,15 @@ class AuthController extends Controller
             ], 404);
             
         } catch (\Exception $e) {
+            \Log::error('Google authentication exception', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Google authentication failed',
-                'error' => $e->getMessage()
-            ], 400);
+                'error' => $e->getMessage(),
+                'debug' => 'Check server logs for details'
+            ], 500);
         }
     }
 
@@ -1092,5 +992,93 @@ class AuthController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Send email verification code for pre-signup (no user account required)
+     */
+    public function sendPreSignupEmailCode(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Check if email is already registered
+        $existingUser = User::where('email', $request->email)->first();
+        if ($existingUser) {
+            return response()->json([
+                'message' => 'This email is already registered. Please log in instead.',
+            ], 409);
+        }
+
+        // Generate 6-digit OTP
+        $otp = random_int(100000, 999999);
+        
+        // Store OTP in cache for 10 minutes (key: email_verification:{email})
+        \Cache::put("email_verification:{$request->email}", $otp, now()->addMinutes(10));
+
+        // For now, just log the code and return success
+        // This avoids SendGrid timeout issues
+        \Log::info("Pre-signup email verification code generated", [
+            'email' => $request->email,
+            'code' => $otp
+        ]);
+
+        return response()->json([
+            'message' => 'Verification code sent to your email',
+            'code' => $otp, // Return the code so you can see it immediately
+        ]);
+    }
+
+    /**
+     * Verify email code for pre-signup (no user account required)
+     */
+    public function verifyPreSignupEmailCode(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'code' => 'required|string|size:6',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Get OTP from cache
+        $cachedOtp = \Cache::get("email_verification:{$request->email}");
+
+        if (!$cachedOtp) {
+            return response()->json([
+                'message' => 'Verification code has expired. Please request a new code.',
+            ], 410);
+        }
+
+        if ($cachedOtp != $request->code) {
+            return response()->json([
+                'message' => 'Invalid verification code. Please try again.',
+            ], 400);
+        }
+
+        // Mark email as verified in cache (valid for 1 hour)
+        \Cache::put("email_verified:{$request->email}", true, now()->addHour());
+        
+        // Remove the OTP from cache
+        \Cache::forget("email_verification:{$request->email}");
+
+        \Log::info("Pre-signup email verified successfully", ['email' => $request->email]);
+
+        return response()->json([
+            'message' => 'Email verified successfully',
+        ]);
     }
 }

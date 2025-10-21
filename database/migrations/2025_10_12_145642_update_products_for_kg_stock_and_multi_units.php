@@ -13,12 +13,18 @@ return new class extends Migration
     {
         Schema::table('products', function (Blueprint $table) {
             // Multi-unit support (stock_kg and price_per_kg already exist)
-            $table->json('available_units')->nullable()->after('description')->comment('Available units for this product: ["kg", "sack", "tali", "piece", "packet"]');
-            $table->integer('pieces_per_bundle')->nullable()->after('available_units')->comment('Number of pieces per tali/bundle (for tali/bundle units)');
+            // Only add columns if they don't exist
+            if (!Schema::hasColumn('products', 'available_units')) {
+                $table->json('available_units')->nullable()->after('description')->comment('Available units for this product: ["kg", "sack", "tali", "piece", "packet"]');
+            }
             
-            // Add indexes for performance
-            $table->index('available_units');
+            if (!Schema::hasColumn('products', 'pieces_per_bundle')) {
+                $table->integer('pieces_per_bundle')->nullable()->after('available_units')->comment('Number of pieces per tali/bundle (for tali/bundle units)');
+            }
         });
+        
+        // Note: JSON columns cannot be indexed directly in MySQL
+        // If indexing is needed, use generated columns instead
     }
 
     /**
@@ -27,14 +33,13 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('products', function (Blueprint $table) {
-            // Drop indexes first
-            $table->dropIndex(['available_units']);
-            
-            // Drop columns
-            $table->dropColumn([
-                'available_units',
-                'pieces_per_bundle'
-            ]);
+            // Drop columns if they exist
+            if (Schema::hasColumn('products', 'available_units')) {
+                $table->dropColumn('available_units');
+            }
+            if (Schema::hasColumn('products', 'pieces_per_bundle')) {
+                $table->dropColumn('pieces_per_bundle');
+            }
         });
     }
 };

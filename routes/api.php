@@ -3,6 +3,276 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+// Health check endpoint for Railway
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+        'message' => 'OnlyFarms API is running',
+        'timestamp' => now()->toISOString()
+    ]);
+});
+
+// ==================== DEBUG ENDPOINTS ====================
+// These endpoints allow you to check all tables easily
+
+// Debug: Check all tables summary
+Route::get('/debug/tables', function () {
+    try {
+        return response()->json([
+            'status' => 'success',
+            'database_connected' => true,
+            'tables' => [
+                'users' => \App\Models\User::count(),
+                'sellers' => \DB::table('sellers')->count(),
+                'products' => \DB::table('products')->count(),
+                'orders' => \DB::table('orders')->count(),
+                'order_items' => \DB::table('order_items')->count(),
+                'addresses' => \DB::table('addresses')->count(),
+                'conversations' => \DB::table('conversations')->count(),
+                'messages' => \DB::table('messages')->count(),
+                'crop_schedules' => \DB::table('crop_schedules')->count(),
+                'preorders' => \DB::table('preorders')->count(),
+                'harvests' => \DB::table('harvests')->count(),
+                'product_reviews' => \DB::table('product_reviews')->count(),
+                'admins' => \DB::table('admins')->count(),
+            ],
+            'message' => 'All table counts retrieved successfully'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'database_connected' => false,
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+
+// Debug: Users table
+Route::get('/debug/users', function () {
+    try {
+        $count = \App\Models\User::count();
+        $recent = \App\Models\User::select('id', 'name', 'email', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'users',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Sellers table
+Route::get('/debug/sellers', function () {
+    try {
+        $count = \DB::table('sellers')->count();
+        $recent = \DB::table('sellers')
+            ->select('id', 'user_id', 'business_name', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'sellers',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Products table
+Route::get('/debug/products', function () {
+    try {
+        $count = \DB::table('products')->count();
+        $recent = \DB::table('products')
+            ->select('id', 'name', 'seller_id', 'category', 'stock_kg', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'products',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Orders table
+Route::get('/debug/orders', function () {
+    try {
+        $count = \DB::table('orders')->count();
+        $recent = \DB::table('orders')
+            ->select('id', 'user_id', 'seller_id', 'total', 'status', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'orders',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Preorders table
+Route::get('/debug/preorders', function () {
+    try {
+        $count = \DB::table('preorders')->count();
+        $recent = \DB::table('preorders')
+            ->select('id', 'user_id', 'crop_schedule_id', 'quantity_kg', 'status', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'preorders',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Crop Schedules table
+Route::get('/debug/crop-schedules', function () {
+    try {
+        $count = \DB::table('crop_schedules')->count();
+        $recent = \DB::table('crop_schedules')
+            ->select('id', 'seller_id', 'crop_type', 'expected_harvest_date', 'status', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'crop_schedules',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Harvests table
+Route::get('/debug/harvests', function () {
+    try {
+        $count = \DB::table('harvests')->count();
+        $recent = \DB::table('harvests')
+            ->select('id', 'crop_schedule_id', 'actual_quantity', 'harvest_date', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'status' => 'success',
+            'table' => 'harvests',
+            'total_count' => $count,
+            'recent_records' => $recent
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['status' => 'error', 'error' => $e->getMessage()], 500);
+    }
+});
+
+// Debug: Check Facebook OAuth config
+Route::get('/debug/facebook-config', function () {
+    return response()->json([
+        'status' => 'success',
+        'config' => [
+            'client_id' => config('services.facebook.client_id') ?? 'NOT SET',
+            'client_secret' => config('services.facebook.client_secret') ? 'SET (hidden)' : 'NOT SET',
+            'redirect_uri' => config('services.facebook.redirect') ?? 'NOT SET',
+        ],
+        'env_check' => [
+            'FACEBOOK_CLIENT_ID' => env('FACEBOOK_CLIENT_ID') ?? 'NOT SET',
+            'FACEBOOK_CLIENT_SECRET' => env('FACEBOOK_CLIENT_SECRET') ? 'SET' : 'NOT SET',
+            'FACEBOOK_REDIRECT_URI' => env('FACEBOOK_REDIRECT_URI') ?? 'NOT SET',
+        ]
+    ]);
+});
+
+// Debug: Check Google OAuth config
+Route::get('/debug/google-config', function () {
+    return response()->json([
+        'status' => 'success',
+        'config' => [
+            'client_id' => config('services.google.client_id') ?? 'NOT SET',
+            'client_secret' => config('services.google.client_secret') ? 'SET (hidden)' : 'NOT SET',
+            'redirect_uri' => config('services.google.redirect') ?? 'NOT SET',
+        ],
+        'env_check' => [
+            'GOOGLE_CLIENT_ID' => env('GOOGLE_CLIENT_ID') ?? 'NOT SET',
+            'GOOGLE_CLIENT_SECRET' => env('GOOGLE_CLIENT_SECRET') ? 'SET' : 'NOT SET',
+            'GOOGLE_REDIRECT_URI' => env('GOOGLE_REDIRECT_URI') ?? 'NOT SET',
+        ]
+    ]);
+});
+
+// Debug: Test Facebook token exchange
+Route::post('/debug/facebook-test-code', function (\Illuminate\Http\Request $request) {
+    $code = $request->input('code');
+    $clientId = config('services.facebook.client_id');
+    $clientSecret = config('services.facebook.client_secret');
+    $redirectUri = config('services.facebook.redirect');
+    
+    if (!$code) {
+        return response()->json(['error' => 'No code provided'], 400);
+    }
+    
+    // Try to exchange the code
+    $response = \Illuminate\Support\Facades\Http::get('https://graph.facebook.com/v18.0/oauth/access_token', [
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'redirect_uri' => $redirectUri,
+        'code' => $code,
+    ]);
+    
+    return response()->json([
+        'config_used' => [
+            'client_id' => $clientId,
+            'redirect_uri' => $redirectUri,
+        ],
+        'facebook_status' => $response->status(),
+        'facebook_response' => $response->json(),
+        'success' => $response->successful()
+    ]);
+});
+
+// Debug: simple PHPMailer test
+Route::post('/debug/send-test-email', function (\Illuminate\Http\Request $request, \App\Services\PhpMailerService $mailer) {
+    $to = $request->input('to');
+    if (!$to) {
+        return response()->json(['error' => 'Missing to email'], 422);
+    }
+    try {
+        $mailer->send($to, 'OnlyFarms User', 'OnlyFarms Test Email', '<h1>It works!</h1><p>This email was sent via PHPMailer SMTP.</p>', 'It works!');
+        return response()->json(['status' => 'sent']);
+    } catch (\Throwable $e) {
+        return response()->json(['error' => 'Send failed', 'message' => $e->getMessage()], 500);
+    }
+});
+
+// ==================== END DEBUG ENDPOINTS ====================
+
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SellerController;
@@ -26,6 +296,7 @@ use App\Http\Controllers\UnitConversionController;
 use App\Http\Controllers\Seller\HarvestController as SellerHarvestController;
 use App\Http\Controllers\Admin\HarvestController as AdminHarvestController;
 use App\Http\Controllers\Admin\ProductVerificationController as AdminProductVerificationController;
+use App\Http\Controllers\MailController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GmailApiVerificationController;
 use App\Http\Controllers\SmartEmailVerificationController;
@@ -79,22 +350,32 @@ Route::post('/resend-phone-verification-code', [AuthController::class, 'resendPh
 Route::post('/verify-phone', [AuthController::class, 'verifyPhone'])->middleware('throttle:5,1');
 
 // Email verification routes (public)
-Route::post('/send-email-verification-code', [AuthController::class, 'sendEmailVerificationCode'])->middleware('throttle:3,1');
-Route::post('/resend-email-verification-code', [AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
-Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
+// Pre-signup email verification (no user account required)
+Route::post('/send-email-verification-code', [\App\Http\Controllers\AuthController::class, 'sendPreSignupEmailCode'])->middleware('throttle:3,1');
+Route::post('/verify-email', [\App\Http\Controllers\AuthController::class, 'verifyPreSignupEmailCode'])->middleware('throttle:5,1');
 
-// Facebook login routes
-Route::get('/auth/facebook', [AuthController::class, 'redirectToFacebook']);
-Route::get('/auth/facebook/callback', [AuthController::class, 'handleFacebookCallback']);
-Route::post('/auth/facebook/callback', [AuthController::class, 'handleFacebookCallback']);
-Route::get('/auth/facebook/url', [AuthController::class, 'getFacebookLoginUrl']);
-Route::post('/auth/facebook/check-user', [AuthController::class, 'checkFacebookUser']); // Check if Facebook user exists
-Route::post('/auth/facebook/signup', [AuthController::class, 'facebookSignup']); // Facebook signup
+// Old email verification methods (for existing users)
+Route::post('/send-email-verification-code-old', [\App\Http\Controllers\AuthController::class, 'sendEmailVerificationCode'])->middleware('throttle:3,1');
+Route::post('/resend-email-verification-code', [\App\Http\Controllers\AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
+Route::post('/verify-email-old', [\App\Http\Controllers\AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
 
-// Google login routes
-Route::get('/auth/google/url', [AuthController::class, 'getGoogleLoginUrl']);
-Route::post('/auth/google/callback', [AuthController::class, 'handleGoogleCallback']);
-Route::post('/auth/google/signup', [AuthController::class, 'googleSignup']); // Google signup
+// General mail send endpoint (PHPMailer)
+Route::post('/mail/send', [MailController::class, 'send'])->middleware('throttle:3,1');
+
+// Social login routes are disabled
+Route::match(['get','post'], '/auth/facebook/{any?}', function() {
+    return response()->json([
+        'message' => 'Social login (Facebook) is currently disabled',
+        'code' => 'SOCIAL_LOGIN_DISABLED'
+    ], 410);
+})->where('any', '.*');
+
+Route::match(['get','post'], '/auth/google/{any?}', function() {
+    return response()->json([
+        'message' => 'Social login (Google) is currently disabled',
+        'code' => 'SOCIAL_LOGIN_DISABLED'
+    ], 410);
+})->where('any', '.*');
 
 // SMS test route (for development)
 Route::post('/test-sms', function(Request $request) {
