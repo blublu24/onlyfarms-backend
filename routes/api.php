@@ -193,6 +193,40 @@ Route::get('/debug/harvests', function () {
     }
 });
 
+// Debug: Check Facebook OAuth config
+Route::get('/debug/facebook-config', function () {
+    return response()->json([
+        'status' => 'success',
+        'config' => [
+            'client_id' => config('services.facebook.client_id') ?? 'NOT SET',
+            'client_secret' => config('services.facebook.client_secret') ? 'SET (hidden)' : 'NOT SET',
+            'redirect_uri' => config('services.facebook.redirect') ?? 'NOT SET',
+        ],
+        'env_check' => [
+            'FACEBOOK_CLIENT_ID' => env('FACEBOOK_CLIENT_ID') ?? 'NOT SET',
+            'FACEBOOK_CLIENT_SECRET' => env('FACEBOOK_CLIENT_SECRET') ? 'SET' : 'NOT SET',
+            'FACEBOOK_REDIRECT_URI' => env('FACEBOOK_REDIRECT_URI') ?? 'NOT SET',
+        ]
+    ]);
+});
+
+// Debug: Check Google OAuth config
+Route::get('/debug/google-config', function () {
+    return response()->json([
+        'status' => 'success',
+        'config' => [
+            'client_id' => config('services.google.client_id') ?? 'NOT SET',
+            'client_secret' => config('services.google.client_secret') ? 'SET (hidden)' : 'NOT SET',
+            'redirect_uri' => config('services.google.redirect') ?? 'NOT SET',
+        ],
+        'env_check' => [
+            'GOOGLE_CLIENT_ID' => env('GOOGLE_CLIENT_ID') ?? 'NOT SET',
+            'GOOGLE_CLIENT_SECRET' => env('GOOGLE_CLIENT_SECRET') ? 'SET' : 'NOT SET',
+            'GOOGLE_REDIRECT_URI' => env('GOOGLE_REDIRECT_URI') ?? 'NOT SET',
+        ]
+    ]);
+});
+
 // ==================== END DEBUG ENDPOINTS ====================
 
 use App\Http\Controllers\AuthController;
