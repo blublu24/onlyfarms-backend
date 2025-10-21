@@ -284,6 +284,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\AdminAuthController;
 use App\Http\Controllers\AdminUserController;
+use App\Http\Controllers\AdminSellerController;
 use App\Http\Controllers\CropScheduleController;
 use App\Http\Controllers\PreorderController;
 use App\Http\Controllers\AdminProductController;
@@ -495,6 +496,13 @@ Route::middleware(['auth:admin', 'admin'])->prefix('admin')->group(function () {
     Route::post('/product-verifications/{product}/approve', [AdminProductVerificationController::class, 'approve']);
     Route::post('/product-verifications/{product}/reject', [AdminProductVerificationController::class, 'reject']);
     Route::get('/product-verifications-stats', [AdminProductVerificationController::class, 'stats']);
+
+    // ✅ Admin Seller Management (Approve/Reject Seller Registrations)
+    Route::get('/sellers', [AdminSellerController::class, 'index']); // Get all sellers (can filter by status)
+    Route::get('/sellers/{seller}', [AdminSellerController::class, 'show']); // Get specific seller details
+    Route::post('/sellers/{seller}/approve', [AdminSellerController::class, 'approve']); // Approve seller
+    Route::post('/sellers/{seller}/reject', [AdminSellerController::class, 'reject']); // Reject seller
+    Route::get('/sellers/pending/count', [AdminSellerController::class, 'pendingCount']); // Get pending count
 });
 
 
