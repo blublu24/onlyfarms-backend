@@ -324,18 +324,20 @@ Route::post('/send-email-verification-code', [AuthController::class, 'sendEmailV
 Route::post('/resend-email-verification-code', [AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
 Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
 
-// Facebook login routes
-Route::get('/auth/facebook', [AuthController::class, 'redirectToFacebook']);
-Route::get('/auth/facebook/callback', [AuthController::class, 'handleFacebookCallback']);
-Route::post('/auth/facebook/callback', [AuthController::class, 'handleFacebookCallback']);
-Route::get('/auth/facebook/url', [AuthController::class, 'getFacebookLoginUrl']);
-Route::post('/auth/facebook/check-user', [AuthController::class, 'checkFacebookUser']); // Check if Facebook user exists
-Route::post('/auth/facebook/signup', [AuthController::class, 'facebookSignup']); // Facebook signup
+// Social login routes are disabled
+Route::match(['get','post'], '/auth/facebook/{any?}', function() {
+    return response()->json([
+        'message' => 'Social login (Facebook) is currently disabled',
+        'code' => 'SOCIAL_LOGIN_DISABLED'
+    ], 410);
+})->where('any', '.*');
 
-// Google login routes
-Route::get('/auth/google/url', [AuthController::class, 'getGoogleLoginUrl']);
-Route::post('/auth/google/callback', [AuthController::class, 'handleGoogleCallback']);
-Route::post('/auth/google/signup', [AuthController::class, 'googleSignup']); // Google signup
+Route::match(['get','post'], '/auth/google/{any?}', function() {
+    return response()->json([
+        'message' => 'Social login (Google) is currently disabled',
+        'code' => 'SOCIAL_LOGIN_DISABLED'
+    ], 410);
+})->where('any', '.*');
 
 // SMS test route (for development)
 Route::post('/test-sms', function(Request $request) {
