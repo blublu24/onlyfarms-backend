@@ -257,6 +257,20 @@ Route::post('/debug/facebook-test-code', function (\Illuminate\Http\Request $req
     ]);
 });
 
+// Debug: simple PHPMailer test
+Route::post('/debug/send-test-email', function (\Illuminate\Http\Request $request, \App\Services\PhpMailerService $mailer) {
+    $to = $request->input('to');
+    if (!$to) {
+        return response()->json(['error' => 'Missing to email'], 422);
+    }
+    try {
+        $mailer->send($to, 'OnlyFarms User', 'OnlyFarms Test Email', '<h1>It works!</h1><p>This email was sent via PHPMailer SMTP.</p>', 'It works!');
+        return response()->json(['status' => 'sent']);
+    } catch (\Throwable $e) {
+        return response()->json(['error' => 'Send failed', 'message' => $e->getMessage()], 500);
+    }
+});
+
 // ==================== END DEBUG ENDPOINTS ====================
 
 use App\Http\Controllers\AuthController;
