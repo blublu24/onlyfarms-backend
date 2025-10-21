@@ -83,6 +83,7 @@ class AuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
+            'email' => 'nullable|string|email',
             'phone_number' => 'required|string|unique:users|min:11|max:13',
             'password' => 'required|string|min:6|confirmed',
         ]);
@@ -103,14 +104,15 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Create user with phone number (unverified)
+        // Create user with phone number and email (unverified)
         $user = User::create([
             'name' => $request->name,
-            'email' => null, // No email for phone registration
+            'email' => $request->email, // Include email from frontend
             'phone_number' => $request->phone_number,
             'password' => Hash::make($request->password),
             'is_seller' => false,
             'phone_verified_at' => null, // Will be set after OTP verification
+            'email_verified_at' => $request->email ? now() : null, // Mark email as verified if provided
         ]);
 
         // Generate and send OTP
