@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use App\Models\User;
-use App\Services\SmsService;
 use App\Services\EmailOtpService;
 use Laravel\Socialite\Facades\Socialite;
 
@@ -16,75 +15,14 @@ class AuthController extends Controller
     // REGISTER method
     public function register(Request $request)
     {
-        $signupMethod = $request->input('signup_method', 'email');
+        // All registrations use the same flow now (no phone verification)
+        // 'signup_method' is ignored - just register directly
         
-        if ($signupMethod === 'phone') {
-            return $this->registerWithPhone($request);
-        }
-        
-        // Original email registration
+        // Combined email/phone registration (phone is optional)
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|unique:users',
-            'password' => 'required|string|min:6|confirmed', // ✅ requires password_confirmation
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        // Create user with email (unverified)
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            'is_seller' => false,
-            'email_verified_at' => null, // Will be set after OTP verification
-        ]);
-
-        // Generate and send OTP via email
-        $emailOtpService = new EmailOtpService();
-        $otp = $emailOtpService->generateOtp();
-        
-        // Store OTP in database
-        $user->update([
-            'email_verification_code' => $otp,
-            'email_verification_expires_at' => now()->addMinutes(10),
-        ]);
-
-        // Send OTP via email
-        $emailResult = $emailOtpService->sendOtp($request->email, $otp, $request->name);
-        
-        if (!$emailResult['success']) {
-            \Log::error("Failed to send email OTP", [
-                'email' => $request->email,
-                'error' => $emailResult['error']
-            ]);
-        }
-        
-        // Log OTP for development/testing
-        if (app()->environment('local')) {
-            \Log::info("Email OTP for {$request->email}: {$otp}");
-        }
-
-        return response()->json([
-            'message' => 'User created. Please verify your email address.',
-            'user_id' => $user->id,
-            'redirect_to_verification' => true,
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
-        ], 201);
-    }
-
-    // REGISTER WITH PHONE method
-    public function registerWithPhone(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => 'nullable|string|email',
-            'phone_number' => 'required|string|unique:users|min:11|max:13',
+            'phone_number' => 'nullable|string|unique:users|min:11|max:13',
             'password' => 'required|string|min:6|confirmed',
         ]);
 
@@ -95,59 +33,41 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Custom phone number validation for Philippine format
-        $phoneNumber = $request->phone_number;
-        if (!$this->isValidPhilippinePhoneNumber($phoneNumber)) {
+        // Validate phone format only if provided
+        if ($request->phone_number && !$this->isValidPhilippinePhoneNumber($request->phone_number)) {
             return response()->json([
                 'message' => 'Validation failed',
-                'errors' => ['phone_number' => ['Please enter a valid Philippine mobile number (09XX-XXX-XXXX)']]
+                'errors' => ['phone_number' => ['Please enter a valid Philippine mobile number (+63 9XX XXX XXXX)']]
             ], 422);
         }
 
-        // Create user with phone number and email (unverified)
+        // Create user with email and optional phone (auto-verified)
         $user = User::create([
             'name' => $request->name,
-            'email' => $request->email, // Include email from frontend
-            'phone_number' => $request->phone_number,
+            'email' => $request->email,
+            'phone_number' => $request->phone_number, // Optional
             'password' => Hash::make($request->password),
             'is_seller' => false,
-            'phone_verified_at' => null, // Will be set after OTP verification
-            'email_verified_at' => $request->email ? now() : null, // Mark email as verified if provided
+            'email_verified_at' => now(), // Auto-verified (used pre-signup verification)
+            'phone_verified_at' => $request->phone_number ? now() : null, // Auto-verified if provided
         ]);
 
-        // Generate and send OTP
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        // Store OTP in database (you might want to create a separate table for this)
-        $user->update([
-            'phone_verification_code' => $otp,
-            'phone_verification_expires_at' => now()->addMinutes(5),
-        ]);
+        // Refresh user to ensure all attributes are loaded
+        $user->refresh();
 
-        // Send SMS with OTP using Twilio
-        $smsService = new SmsService();
-        $smsResult = $smsService->sendOtp($request->phone_number, $otp);
-        
-        if (!$smsResult['success']) {
-            \Log::error("Failed to send SMS OTP", [
-                'phone_number' => $request->phone_number,
-                'error' => $smsResult['error']
-            ]);
-            
-            // Still return success but log the SMS failure
-            // In production, you might want to return an error here
-        }
-        
-        // Log OTP for development/testing
-        if (app()->environment('local')) {
-            \Log::info("Phone OTP for {$request->phone_number}: {$otp}");
-        }
+        // Generate authentication token (email already verified in pre-signup)
+        $token = $user->createToken('onlyfarms_token')->plainTextToken;
+
+        \Log::info("Email registration successful", [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'has_phone' => !empty($user->phone_number)
+        ]);
 
         return response()->json([
-            'message' => 'User created. Please verify your phone number.',
-            'user_id' => $user->id,
-            'redirect_to_verification' => true,
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
+            'message' => 'User created successfully!',
+            'user' => $user,
+            'token' => $token
         ], 201);
     }
 
@@ -259,163 +179,31 @@ class AuthController extends Controller
         ]);
     }
 
-    // SEND PHONE VERIFICATION CODE
+    // PHONE VERIFICATION METHODS (DISABLED - SMS NOT CONFIGURED)
+    // To enable: Configure SMS service (Semaphore, Twilio, or AWS SNS) in .env
+    
     public function sendPhoneVerificationCode(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'phone_number' => 'required|string|min:11|max:13',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        // Custom phone number validation for Philippine format
-        $phoneNumber = $request->phone_number;
-        if (!$this->isValidPhilippinePhoneNumber($phoneNumber)) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => ['phone_number' => ['Please enter a valid Philippine mobile number (09XX-XXX-XXXX)']]
-            ], 422);
-        }
-
-        $user = User::where('phone_number', $request->phone_number)->first();
-        
-        if (!$user) {
-            return response()->json([
-                'message' => 'User not found with this phone number'
-            ], 404);
-        }
-
-        // Generate new OTP
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        $user->update([
-            'phone_verification_code' => $otp,
-            'phone_verification_expires_at' => now()->addMinutes(5),
-        ]);
-
-        // TODO: Send SMS with OTP using SMS service (Twilio, etc.)
-        if (app()->environment('local')) {
-            \Log::info("Phone OTP for {$request->phone_number}: {$otp}");
-        }
-
         return response()->json([
-            'message' => 'Verification code sent successfully',
-            'user_id' => $user->id,
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
-        ]);
+            'message' => 'Phone verification is currently disabled. SMS service not configured.',
+            'error' => 'Feature not available'
+        ], 503);
     }
 
-    // RESEND PHONE VERIFICATION CODE
     public function resendPhoneVerificationCode(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'user_id' => 'required|integer|exists:users,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $user = User::find($request->user_id);
-        
-        if (!$user || !$user->phone_number) {
-            return response()->json([
-                'message' => 'User not found or no phone number'
-            ], 404);
-        }
-
-        // Generate new OTP
-        $otp = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        
-        $user->update([
-            'phone_verification_code' => $otp,
-            'phone_verification_expires_at' => now()->addMinutes(5),
-        ]);
-
-        // Send SMS with OTP using Twilio
-        $smsService = new SmsService();
-        $smsResult = $smsService->sendOtp($user->phone_number, $otp);
-        
-        if (!$smsResult['success']) {
-            \Log::error("Failed to resend SMS OTP", [
-                'phone_number' => $user->phone_number,
-                'error' => $smsResult['error']
-            ]);
-        }
-        
-        // Log OTP for development/testing
-        if (app()->environment('local')) {
-            \Log::info("Resent Phone OTP for {$user->phone_number}: {$otp}");
-        }
-
         return response()->json([
-            'message' => 'Verification code resent successfully',
-            'verification_code' => app()->environment('local') ? $otp : null, // Only in development
-        ]);
+            'message' => 'Phone verification is currently disabled. SMS service not configured.',
+            'error' => 'Feature not available'
+        ], 503);
     }
 
-    // VERIFY PHONE
     public function verifyPhone(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'user_id' => 'required|integer|exists:users,id',
-            'verification_code' => 'required|string|size:6',
-            'name' => 'required|string|max:255',
-            'password' => 'required|string|min:6|confirmed',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        $user = User::find($request->user_id);
-        
-        if (!$user) {
-            return response()->json([
-                'message' => 'User not found'
-            ], 404);
-        }
-
-        // Check if OTP is valid and not expired
-        if ($user->phone_verification_code !== $request->verification_code) {
-            return response()->json([
-                'message' => 'Invalid verification code'
-            ], 400);
-        }
-
-        if ($user->phone_verification_expires_at && $user->phone_verification_expires_at->isPast()) {
-            return response()->json([
-                'message' => 'Verification code has expired'
-            ], 400);
-        }
-
-        // Update user with verified phone and final details
-        $user->update([
-            'name' => $request->name,
-            'password' => Hash::make($request->password),
-            'phone_verified_at' => now(),
-            'phone_verification_code' => null,
-            'phone_verification_expires_at' => null,
-        ]);
-
-        $token = $user->createToken('onlyfarms_token')->plainTextToken;
-
         return response()->json([
-            'message' => 'Phone verified successfully!',
-            'user' => $user,
-            'token' => $token
-        ], 200);
+            'message' => 'Phone verification is currently disabled. SMS service not configured.',
+            'error' => 'Feature not available'
+        ], 503);
     }
 
     // EMAIL VERIFICATION METHODS
