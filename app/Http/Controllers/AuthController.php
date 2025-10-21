@@ -630,9 +630,17 @@ class AuthController extends Controller
             $code = $request->get('code');
             $state = $request->get('state');
             
+            \Log::info('Facebook callback received', [
+                'has_code' => !empty($code),
+                'has_state' => !empty($state),
+                'request_data' => $request->all()
+            ]);
+            
             if (!$code) {
+                \Log::error('Facebook callback: No authorization code provided');
                 return response()->json([
-                    'message' => 'Authorization code not provided'
+                    'message' => 'Authorization code not provided',
+                    'debug' => 'No code parameter in request'
                 ], 400);
             }
             
@@ -640,6 +648,12 @@ class AuthController extends Controller
             $clientId = config('services.facebook.client_id');
             $clientSecret = config('services.facebook.client_secret');
             $redirectUri = config('services.facebook.redirect');
+            
+            \Log::info('Facebook OAuth config', [
+                'client_id' => $clientId ? 'SET' : 'NOT SET',
+                'client_secret' => $clientSecret ? 'SET' : 'NOT SET',
+                'redirect_uri' => $redirectUri
+            ]);
             
             $tokenResponse = Http::get('https://graph.facebook.com/v18.0/oauth/access_token', [
                 'client_id' => $clientId,
@@ -649,8 +663,15 @@ class AuthController extends Controller
             ]);
             
             if (!$tokenResponse->successful()) {
+                $errorBody = $tokenResponse->json();
+                \Log::error('Facebook token exchange failed', [
+                    'status' => $tokenResponse->status(),
+                    'error' => $errorBody
+                ]);
                 return response()->json([
-                    'message' => 'Failed to exchange code for token'
+                    'message' => 'Failed to exchange code for token',
+                    'debug' => $errorBody,
+                    'redirect_uri_used' => $redirectUri
                 ], 400);
             }
             
@@ -665,6 +686,7 @@ class AuthController extends Controller
             
             // If the first request fails, try with a simpler picture request
             if (!$userResponse->successful()) {
+                \Log::warning('Facebook user info request failed with high-res picture, trying simple picture');
                 $userResponse = Http::get('https://graph.facebook.com/v18.0/me', [
                     'fields' => 'id,name,picture',
                     'access_token' => $accessToken,
@@ -672,8 +694,14 @@ class AuthController extends Controller
             }
             
             if (!$userResponse->successful()) {
+                $errorBody = $userResponse->json();
+                \Log::error('Facebook user info request failed', [
+                    'status' => $userResponse->status(),
+                    'error' => $errorBody
+                ]);
                 return response()->json([
-                    'message' => 'Failed to get user info from Facebook'
+                    'message' => 'Failed to get user info from Facebook',
+                    'debug' => $errorBody
                 ], 400);
             }
             
@@ -734,10 +762,15 @@ class AuthController extends Controller
             ], 404);
             
         } catch (\Exception $e) {
+            \Log::error('Facebook authentication exception', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Facebook authentication failed',
-                'error' => $e->getMessage()
-            ], 400);
+                'error' => $e->getMessage(),
+                'debug' => 'Check server logs for details'
+            ], 500);
         }
     }
 
