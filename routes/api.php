@@ -296,6 +296,7 @@ use App\Http\Controllers\UnitConversionController;
 use App\Http\Controllers\Seller\HarvestController as SellerHarvestController;
 use App\Http\Controllers\Admin\HarvestController as AdminHarvestController;
 use App\Http\Controllers\Admin\ProductVerificationController as AdminProductVerificationController;
+use App\Http\Controllers\MailController;
 use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GmailApiVerificationController;
 use App\Http\Controllers\SmartEmailVerificationController;
@@ -323,6 +324,9 @@ Route::post('/verify-phone', [AuthController::class, 'verifyPhone'])->middleware
 Route::post('/send-email-verification-code', [AuthController::class, 'sendEmailVerificationCode'])->middleware('throttle:3,1');
 Route::post('/resend-email-verification-code', [AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
 Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
+
+// General mail send endpoint (PHPMailer)
+Route::post('/mail/send', [MailController::class, 'send'])->middleware('throttle:3,1');
 
 // Social login routes are disabled
 Route::match(['get','post'], '/auth/facebook/{any?}', function() {
