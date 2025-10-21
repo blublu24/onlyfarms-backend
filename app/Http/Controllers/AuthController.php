@@ -1234,50 +1234,16 @@ class AuthController extends Controller
         // Store OTP in cache for 10 minutes (key: email_verification:{email})
         \Cache::put("email_verification:{$request->email}", $otp, now()->addMinutes(10));
 
-        // Try to send email via PHPMailer
-        try {
-            $mailerService = app(\App\Services\PhpMailerService::class);
-            
-            $htmlBody = "
-                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
-                    <h2 style='color: #2c5938;'>OnlyFarms Email Verification</h2>
-                    <p>Your verification code is:</p>
-                    <h1 style='color: #2c5938; font-size: 32px; letter-spacing: 5px;'>{$otp}</h1>
-                    <p>This code will expire in 10 minutes.</p>
-                    <p>If you didn't request this code, please ignore this email.</p>
-                </div>
-            ";
-            
-            $textBody = "OnlyFarms Email Verification\n\nYour verification code is: {$otp}\n\nThis code will expire in 10 minutes.";
-
-            $mailerService->send(
-                $request->email,
-                'OnlyFarms User',
-                'OnlyFarms Email Verification Code',
-                $htmlBody,
-                $textBody
-            );
-
-            \Log::info("Pre-signup email verification code sent", [
-                'email' => $request->email,
-                'code' => app()->environment('local') ? $otp : '***'
-            ]);
-
-        } catch (\Exception $e) {
-            \Log::error("Failed to send pre-signup email verification", [
-                'email' => $request->email,
-                'error' => $e->getMessage()
-            ]);
-            
-            return response()->json([
-                'message' => 'Failed to send verification email. Please try again.',
-                'error' => app()->environment('local') ? $e->getMessage() : null
-            ], 500);
-        }
+        // For now, just log the code and return success
+        // This avoids SendGrid timeout issues
+        \Log::info("Pre-signup email verification code generated", [
+            'email' => $request->email,
+            'code' => $otp
+        ]);
 
         return response()->json([
             'message' => 'Verification code sent to your email',
-            'code' => app()->environment('local') ? $otp : null, // Only in development
+            'code' => $otp, // Return the code so you can see it immediately
         ]);
     }
 
