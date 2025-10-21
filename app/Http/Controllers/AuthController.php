@@ -669,12 +669,26 @@ class AuthController extends Controller
                 $errorBody = $tokenResponse->json();
                 \Log::error('Facebook token exchange failed', [
                     'status' => $tokenResponse->status(),
-                    'error' => $errorBody
+                    'error' => $errorBody,
+                    'code_length' => strlen($code),
+                    'redirect_uri' => $redirectUri
                 ]);
+                
+                // Extract Facebook's error message if available
+                $facebookError = $errorBody['error']['message'] ?? 'Unknown error';
+                $facebookErrorCode = $errorBody['error']['code'] ?? 'Unknown';
+                
                 return response()->json([
-                    'message' => 'Failed to exchange code for token',
-                    'debug' => $errorBody,
-                    'redirect_uri_used' => $redirectUri
+                    'message' => 'Facebook authentication failed',
+                    'error' => 'FACEBOOK_TOKEN_EXCHANGE_FAILED',
+                    'facebook_error' => $facebookError,
+                    'facebook_error_code' => $facebookErrorCode,
+                    'debug' => [
+                        'status' => $tokenResponse->status(),
+                        'full_error' => $errorBody,
+                        'redirect_uri_used' => $redirectUri,
+                        'client_id_used' => $clientId
+                    ]
                 ], 400);
             }
             

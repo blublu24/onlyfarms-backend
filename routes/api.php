@@ -227,6 +227,36 @@ Route::get('/debug/google-config', function () {
     ]);
 });
 
+// Debug: Test Facebook token exchange
+Route::post('/debug/facebook-test-code', function (\Illuminate\Http\Request $request) {
+    $code = $request->input('code');
+    $clientId = config('services.facebook.client_id');
+    $clientSecret = config('services.facebook.client_secret');
+    $redirectUri = config('services.facebook.redirect');
+    
+    if (!$code) {
+        return response()->json(['error' => 'No code provided'], 400);
+    }
+    
+    // Try to exchange the code
+    $response = \Illuminate\Support\Facades\Http::get('https://graph.facebook.com/v18.0/oauth/access_token', [
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'redirect_uri' => $redirectUri,
+        'code' => $code,
+    ]);
+    
+    return response()->json([
+        'config_used' => [
+            'client_id' => $clientId,
+            'redirect_uri' => $redirectUri,
+        ],
+        'facebook_status' => $response->status(),
+        'facebook_response' => $response->json(),
+        'success' => $response->successful()
+    ]);
+});
+
 // ==================== END DEBUG ENDPOINTS ====================
 
 use App\Http\Controllers\AuthController;
