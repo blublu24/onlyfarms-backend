@@ -627,12 +627,14 @@ class AuthController extends Controller
     public function handleFacebookCallback(Request $request)
     {
         try {
-            $code = $request->get('code');
-            $state = $request->get('state');
+            // Accept code from either GET query params or POST JSON body
+            $code = $request->input('code') ?? $request->query('code');
+            $state = $request->input('state') ?? $request->query('state');
             
             \Log::info('Facebook callback received', [
                 'has_code' => !empty($code),
                 'has_state' => !empty($state),
+                'request_method' => $request->method(),
                 'request_data' => $request->all()
             ]);
             
@@ -640,7 +642,8 @@ class AuthController extends Controller
                 \Log::error('Facebook callback: No authorization code provided');
                 return response()->json([
                     'message' => 'Authorization code not provided',
-                    'debug' => 'No code parameter in request'
+                    'debug' => 'No code parameter in request',
+                    'received_data' => $request->all()
                 ], 400);
             }
             
@@ -985,12 +988,23 @@ class AuthController extends Controller
     public function handleGoogleCallback(Request $request)
     {
         try {
-            $code = $request->get('code');
-            $state = $request->get('state');
+            // Accept code from either GET query params or POST JSON body
+            $code = $request->input('code') ?? $request->query('code');
+            $state = $request->input('state') ?? $request->query('state');
+            
+            \Log::info('Google callback received', [
+                'has_code' => !empty($code),
+                'has_state' => !empty($state),
+                'request_method' => $request->method(),
+                'request_data' => $request->all()
+            ]);
             
             if (!$code) {
+                \Log::error('Google callback: No authorization code provided');
                 return response()->json([
-                    'message' => 'Authorization code not provided'
+                    'message' => 'Authorization code not provided',
+                    'debug' => 'No code parameter in request',
+                    'received_data' => $request->all()
                 ], 400);
             }
             
@@ -998,6 +1012,12 @@ class AuthController extends Controller
             $clientId = config('services.google.client_id');
             $clientSecret = config('services.google.client_secret');
             $redirectUri = config('services.google.redirect');
+            
+            \Log::info('Google OAuth config', [
+                'client_id' => $clientId ? 'SET' : 'NOT SET',
+                'client_secret' => $clientSecret ? 'SET' : 'NOT SET',
+                'redirect_uri' => $redirectUri
+            ]);
             
             $tokenResponse = Http::post('https://oauth2.googleapis.com/token', [
                 'client_id' => $clientId,
@@ -1008,8 +1028,15 @@ class AuthController extends Controller
             ]);
             
             if (!$tokenResponse->successful()) {
+                $errorBody = $tokenResponse->json();
+                \Log::error('Google token exchange failed', [
+                    'status' => $tokenResponse->status(),
+                    'error' => $errorBody
+                ]);
                 return response()->json([
-                    'message' => 'Failed to exchange code for token'
+                    'message' => 'Failed to exchange code for token',
+                    'debug' => $errorBody,
+                    'redirect_uri_used' => $redirectUri
                 ], 400);
             }
             
@@ -1022,8 +1049,14 @@ class AuthController extends Controller
             ]);
             
             if (!$userResponse->successful()) {
+                $errorBody = $userResponse->json();
+                \Log::error('Google user info request failed', [
+                    'status' => $userResponse->status(),
+                    'error' => $errorBody
+                ]);
                 return response()->json([
-                    'message' => 'Failed to get user info from Google'
+                    'message' => 'Failed to get user info from Google',
+                    'debug' => $errorBody
                 ], 400);
             }
             
@@ -1078,10 +1111,15 @@ class AuthController extends Controller
             ], 404);
             
         } catch (\Exception $e) {
+            \Log::error('Google authentication exception', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Google authentication failed',
-                'error' => $e->getMessage()
-            ], 400);
+                'error' => $e->getMessage(),
+                'debug' => 'Check server logs for details'
+            ], 500);
         }
     }
 
