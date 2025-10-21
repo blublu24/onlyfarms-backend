@@ -894,6 +894,7 @@ class AuthController extends Controller
                 'scope' => 'public_profile', // Temporarily remove email scope until Facebook app is configured
                 'response_type' => 'code',
                 'state' => $state,
+                'auth_type' => 'reauthenticate', // Force fresh login every time
             ];
             
             $facebookLoginUrl = 'https://www.facebook.com/v18.0/dialog/oauth?' . http_build_query($params);
@@ -978,6 +979,7 @@ class AuthController extends Controller
                 'scope' => 'openid email profile',
                 'response_type' => 'code',
                 'state' => $state,
+                'prompt' => 'select_account', // Force account selection every time
                 'device_id' => 'onlyfarms-mobile-app',
                 'device_name' => 'OnlyFarms Mobile App',
             ];
