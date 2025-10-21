@@ -834,12 +834,37 @@ class AuthController extends Controller
     public function getFacebookLoginUrl()
     {
         try {
-            // Create a state parameter for security
-            $state = bin2hex(random_bytes(16));
-            
             // Build the Facebook OAuth URL manually to avoid session dependency
             $clientId = config('services.facebook.client_id');
             $redirectUri = config('services.facebook.redirect');
+            
+            // Check if config is properly loaded
+            if (empty($clientId)) {
+                \Log::error('Facebook Client ID not configured');
+                return response()->json([
+                    'error' => 'Facebook Client ID not configured',
+                    'message' => 'Please set FACEBOOK_CLIENT_ID in environment variables',
+                    'debug' => [
+                        'client_id' => 'NOT SET',
+                        'redirect_uri' => $redirectUri ?? 'NOT SET'
+                    ]
+                ], 500);
+            }
+            
+            if (empty($redirectUri)) {
+                \Log::error('Facebook Redirect URI not configured');
+                return response()->json([
+                    'error' => 'Facebook Redirect URI not configured',
+                    'message' => 'Please set FACEBOOK_REDIRECT_URI in environment variables',
+                    'debug' => [
+                        'client_id' => 'SET',
+                        'redirect_uri' => 'NOT SET'
+                    ]
+                ], 500);
+            }
+            
+            // Create a state parameter for security
+            $state = bin2hex(random_bytes(16));
             
             // Force HTTPS for Facebook OAuth (Facebook requires secure connections)
             if (strpos($redirectUri, 'http://') === 0) {
@@ -860,20 +885,18 @@ class AuthController extends Controller
             \Log::info('Facebook Login URL Generated:', [
                 'redirect_uri' => $redirectUri,
                 'facebook_login_url' => $facebookLoginUrl,
-                'client_id' => $clientId
+                'client_id' => $clientId ? 'SET' : 'NOT SET'
             ]);
             
             return response()->json([
                 'facebook_login_url' => $facebookLoginUrl,
-                'state' => $state,
-                'debug' => [
-                    'redirect_uri' => $redirectUri,
-                    'app_url' => config('app.url'),
-                    'client_id' => $clientId,
-                    'facebook_app_domain' => 'abc123.ngrok.io'
-                ]
+                'state' => $state
             ]);
         } catch (\Exception $e) {
+            \Log::error('Failed to generate Facebook login URL', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'error' => 'Failed to generate Facebook login URL',
                 'message' => $e->getMessage()
