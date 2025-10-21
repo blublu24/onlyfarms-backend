@@ -30,9 +30,22 @@ class PhpMailerService
             $mail->Username = $username;
             $mail->Password = $password;
             $mail->Port = $port;
+            $mail->Timeout = 30; // 30 second timeout
+            $mail->SMTPKeepAlive = true;
             if ($encryption) {
                 $mail->SMTPSecure = $encryption;
             }
+            
+            // Log configuration for debugging
+            \Log::info('PHPMailer SMTP Configuration', [
+                'host' => $host,
+                'port' => $port,
+                'username' => $username,
+                'encryption' => $encryption,
+                'from_email' => $fromEmail,
+                'from_name' => $fromName,
+                'to_email' => $toEmail
+            ]);
 
             $mail->setFrom($fromEmail, (string) $fromName);
             $mail->addAddress($toEmail, $toName);
@@ -44,7 +57,14 @@ class PhpMailerService
             }
 
             $mail->send();
+            \Log::info('Email sent successfully', ['to' => $toEmail, 'subject' => $subject]);
         } catch (MailException $e) {
+            \Log::error('PHPMailer failed to send email', [
+                'to' => $toEmail,
+                'subject' => $subject,
+                'error' => $e->getMessage(),
+                'error_info' => $mail->ErrorInfo ?? 'No error info available'
+            ]);
             throw new \RuntimeException('Email send failed: ' . $e->getMessage(), 0, $e);
         }
     }
