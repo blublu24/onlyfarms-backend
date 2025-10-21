@@ -321,9 +321,14 @@ Route::post('/resend-phone-verification-code', [AuthController::class, 'resendPh
 Route::post('/verify-phone', [AuthController::class, 'verifyPhone'])->middleware('throttle:5,1');
 
 // Email verification routes (public)
-Route::post('/send-email-verification-code', [AuthController::class, 'sendEmailVerificationCode'])->middleware('throttle:3,1');
-Route::post('/resend-email-verification-code', [AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
-Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
+// Pre-signup email verification (no user account required)
+Route::post('/send-email-verification-code', [\App\Http\Controllers\AuthController::class, 'sendPreSignupEmailCode'])->middleware('throttle:3,1');
+Route::post('/verify-email', [\App\Http\Controllers\AuthController::class, 'verifyPreSignupEmailCode'])->middleware('throttle:5,1');
+
+// Old email verification methods (for existing users)
+Route::post('/send-email-verification-code-old', [\App\Http\Controllers\AuthController::class, 'sendEmailVerificationCode'])->middleware('throttle:3,1');
+Route::post('/resend-email-verification-code', [\App\Http\Controllers\AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
+Route::post('/verify-email-old', [\App\Http\Controllers\AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
 
 // General mail send endpoint (PHPMailer)
 Route::post('/mail/send', [MailController::class, 'send'])->middleware('throttle:3,1');

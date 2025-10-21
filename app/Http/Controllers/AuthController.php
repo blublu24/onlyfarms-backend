@@ -1203,4 +1203,126 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Send email verification code for pre-signup (no user account required)
+     */
+    public function sendPreSignupEmailCode(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Check if email is already registered
+        $existingUser = User::where('email', $request->email)->first();
+        if ($existingUser) {
+            return response()->json([
+                'message' => 'This email is already registered. Please log in instead.',
+            ], 409);
+        }
+
+        // Generate 6-digit OTP
+        $otp = random_int(100000, 999999);
+        
+        // Store OTP in cache for 10 minutes (key: email_verification:{email})
+        \Cache::put("email_verification:{$request->email}", $otp, now()->addMinutes(10));
+
+        // Try to send email via PHPMailer
+        try {
+            $mailerService = app(\App\Services\PhpMailerService::class);
+            
+            $htmlBody = "
+                <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
+                    <h2 style='color: #2c5938;'>OnlyFarms Email Verification</h2>
+                    <p>Your verification code is:</p>
+                    <h1 style='color: #2c5938; font-size: 32px; letter-spacing: 5px;'>{$otp}</h1>
+                    <p>This code will expire in 10 minutes.</p>
+                    <p>If you didn't request this code, please ignore this email.</p>
+                </div>
+            ";
+            
+            $textBody = "OnlyFarms Email Verification\n\nYour verification code is: {$otp}\n\nThis code will expire in 10 minutes.";
+
+            $mailerService->send(
+                $request->email,
+                'OnlyFarms User',
+                'OnlyFarms Email Verification Code',
+                $htmlBody,
+                $textBody
+            );
+
+            \Log::info("Pre-signup email verification code sent", [
+                'email' => $request->email,
+                'code' => app()->environment('local') ? $otp : '***'
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error("Failed to send pre-signup email verification", [
+                'email' => $request->email,
+                'error' => $e->getMessage()
+            ]);
+            
+            return response()->json([
+                'message' => 'Failed to send verification email. Please try again.',
+                'error' => app()->environment('local') ? $e->getMessage() : null
+            ], 500);
+        }
+
+        return response()->json([
+            'message' => 'Verification code sent to your email',
+            'code' => app()->environment('local') ? $otp : null, // Only in development
+        ]);
+    }
+
+    /**
+     * Verify email code for pre-signup (no user account required)
+     */
+    public function verifyPreSignupEmailCode(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'code' => 'required|string|size:6',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Get OTP from cache
+        $cachedOtp = \Cache::get("email_verification:{$request->email}");
+
+        if (!$cachedOtp) {
+            return response()->json([
+                'message' => 'Verification code has expired. Please request a new code.',
+            ], 410);
+        }
+
+        if ($cachedOtp != $request->code) {
+            return response()->json([
+                'message' => 'Invalid verification code. Please try again.',
+            ], 400);
+        }
+
+        // Mark email as verified in cache (valid for 1 hour)
+        \Cache::put("email_verified:{$request->email}", true, now()->addHour());
+        
+        // Remove the OTP from cache
+        \Cache::forget("email_verification:{$request->email}");
+
+        \Log::info("Pre-signup email verified successfully", ['email' => $request->email]);
+
+        return response()->json([
+            'message' => 'Email verified successfully',
+        ]);
+    }
 }
