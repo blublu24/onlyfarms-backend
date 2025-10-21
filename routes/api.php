@@ -40,6 +40,35 @@ use App\Http\Controllers\SocialLoginController;
 // Admin Auth
 Route::post('/admin/login', [AdminAuthController::class, 'login']);
 
+// 🚨 TEMPORARY: Setup admin account - DELETE AFTER USE!
+Route::get('/setup-admin-once', function () {
+    try {
+        if (\App\Models\Admin::where('email', 'superadminonlyfarms@gmail.com')->exists()) {
+            return response()->json(['message' => 'Admin already exists!'], 400);
+        }
+        
+        \App\Models\Admin::create([
+            'name' => 'Super Admin',
+            'email' => 'superadminonlyfarms@gmail.com',
+            'password' => \Illuminate\Support\Facades\Hash::make('SuperAdmin1'),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        
+        return response()->json([
+            'success' => true,
+            'message' => '✅ Admin created successfully!',
+            'credentials' => [
+                'email' => 'superadminonlyfarms@gmail.com',
+                'password' => 'SuperAdmin1'
+            ],
+            'warning' => '🚨 DELETE THE /setup-admin-once ROUTE FROM routes/api.php NOW!'
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
 // Auth with rate limiting
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
