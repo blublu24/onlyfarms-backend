@@ -56,7 +56,10 @@ class AuthController extends Controller
         $user->refresh();
 
         // Generate authentication token (email already verified in pre-signup)
-        $token = $user->createToken('onlyfarms_token')->plainTextToken;
+        $newToken = $user->createToken('onlyfarms_token');
+        $expiresAt = now()->addHours(12);
+        $newToken->accessToken->expires_at = $expiresAt;
+        $newToken->accessToken->save();
 
         \Log::info("Email registration successful", [
             'user_id' => $user->id,
@@ -67,7 +70,8 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'User created successfully!',
             'user' => $user,
-            'token' => $token
+            'token' => $newToken->plainTextToken,
+            'expires_at' => $expiresAt->toISOString()
         ], 201);
     }
 
@@ -117,12 +121,16 @@ class AuthController extends Controller
             ], 401);
         }
 
-        $token = $user->createToken('onlyfarms_token')->plainTextToken;
+        $newToken = $user->createToken('onlyfarms_token');
+        $expiresAt = now()->addHours(12);
+        $newToken->accessToken->expires_at = $expiresAt;
+        $newToken->accessToken->save();
 
         return response()->json([
             'message' => 'Login successful!',
             'user' => $user,
-            'token' => $token
+            'token' => $newToken->plainTextToken,
+            'expires_at' => $expiresAt->toISOString()
         ], 200);
     }
 
@@ -383,12 +391,16 @@ class AuthController extends Controller
         ]);
 
         // Create token for the user
-        $token = $user->createToken('onlyfarms_token')->plainTextToken;
+        $newToken = $user->createToken('onlyfarms_token');
+        $expiresAt = now()->addHours(12);
+        $newToken->accessToken->expires_at = $expiresAt;
+        $newToken->accessToken->save();
 
         return response()->json([
             'message' => 'Email verified successfully',
             'user' => $user,
-            'token' => $token
+            'token' => $newToken->plainTextToken,
+            'expires_at' => $expiresAt->toISOString()
         ]);
     }
 
@@ -409,6 +421,115 @@ class AuthController extends Controller
     public function redirectToFacebook()
     {
         return Socialite::driver('facebook')->redirect();
+    }
+
+    /**
+     * Facebook Login - Mobile App Version
+     * Accepts access_token and authenticates/creates user
+     */
+    public function facebookLogin(Request $request)
+    {
+        try {
+            $request->validate([
+                'access_token' => 'required|string',
+            ]);
+
+            $accessToken = $request->access_token;
+
+            // Get user info from Facebook
+            $userResponse = Http::get('https://graph.facebook.com/me', [
+                'fields' => 'id,name,email,picture',
+                'access_token' => $accessToken,
+            ]);
+
+            if (!$userResponse->successful()) {
+                \Log::error('Failed to fetch Facebook user info', [
+                    'status' => $userResponse->status(),
+                    'response' => $userResponse->json()
+                ]);
+                return response()->json([
+                    'message' => 'Failed to fetch user information from Facebook',
+                    'error' => 'FACEBOOK_ERROR'
+                ], 400);
+            }
+
+            $facebookUser = $userResponse->json();
+
+            // Check if user exists by Facebook ID
+            $user = User::where('facebook_id', $facebookUser['id'])->first();
+
+            if ($user) {
+                // User exists - log them in
+                $newToken = $user->createToken('onlyfarms_token');
+                $expiresAt = now()->addHours(12);
+                $newToken->accessToken->expires_at = $expiresAt;
+                $newToken->accessToken->save();
+
+                \Log::info('Facebook login successful (existing user)', [
+                    'user_id' => $user->id,
+                    'facebook_id' => $facebookUser['id'],
+                    'email' => $user->email
+                ]);
+
+                return response()->json([
+                    'message' => 'Login successful!',
+                    'user' => $user,
+                    'token' => $newToken->plainTextToken,
+                    'expires_at' => $expiresAt->toISOString(),
+                    'is_new_user' => false
+                ], 200);
+            }
+
+            // Check if user exists by email
+            if (!empty($facebookUser['email'])) {
+                $emailUser = User::where('email', $facebookUser['email'])->first();
+                if ($emailUser) {
+                    // Link Facebook account to existing user
+                    $emailUser->update(['facebook_id' => $facebookUser['id']]);
+                    $newToken = $emailUser->createToken('onlyfarms_token');
+                    $expiresAt = now()->addHours(12);
+                    $newToken->accessToken->expires_at = $expiresAt;
+                    $newToken->accessToken->save();
+
+                    \Log::info('Facebook login successful (linked to existing email)', [
+                        'user_id' => $emailUser->id,
+                        'facebook_id' => $facebookUser['id'],
+                        'email' => $facebookUser['email']
+                    ]);
+
+                    return response()->json([
+                        'message' => 'Login successful!',
+                        'user' => $emailUser,
+                        'token' => $newToken->plainTextToken,
+                        'expires_at' => $expiresAt->toISOString(),
+                        'is_new_user' => false
+                    ], 200);
+                }
+            }
+
+            // User doesn't exist - return error asking to sign up
+            return response()->json([
+                'message' => 'Facebook account not registered. Please sign up first.',
+                'error' => 'ACCOUNT_NOT_FOUND',
+                'facebook_user' => [
+                    'id' => $facebookUser['id'],
+                    'name' => $facebookUser['name'],
+                    'email' => $facebookUser['email'] ?? null,
+                    'picture' => $facebookUser['picture']['data']['url'] ?? null
+                ],
+                'requires_signup' => true
+            ], 404);
+
+        } catch (\Exception $e) {
+            \Log::error('Facebook login error:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'message' => 'Facebook login failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -451,7 +572,7 @@ class AuthController extends Controller
             $tokenResponse = Http::get('https://graph.facebook.com/v18.0/oauth/access_token', [
                 'client_id' => $clientId,
                 'client_secret' => $clientSecret,
-                'redirect_uri' => $redirectUri,
+                'redirect_uri' => $redirectUri, // HTTPS for Facebook
                 'code' => $code,
             ]);
             
@@ -544,12 +665,16 @@ class AuthController extends Controller
                     'profile_image_url' => $profileImageUrl
                 ]);
                 
-                $token = $user->createToken('auth_token')->plainTextToken;
+                $newToken = $user->createToken('auth_token');
+                $expiresAt = now()->addHours(12);
+                $newToken->accessToken->expires_at = $expiresAt;
+                $newToken->accessToken->save();
                 
                 return response()->json([
                     'message' => 'Login successful',
                     'user' => $user,
-                    'token' => $token,
+                    'token' => $newToken->plainTextToken,
+                    'expires_at' => $expiresAt->toISOString(),
                     'is_new_user' => false
                 ], 200);
             }
@@ -581,18 +706,39 @@ class AuthController extends Controller
         }
     }
 
-    // Facebook Signup - Create new user with Facebook data
+    /**
+     * Facebook Signup - accepts access token, fetches user data, creates account
+     */
     public function facebookSignup(Request $request)
     {
         try {
             $request->validate([
-                'facebook_id' => 'required|string',
-                'name' => 'required|string',
-                'profile_picture' => 'nullable|string'
+                'access_token' => 'required|string',
             ]);
 
+            $accessToken = $request->access_token;
+
+            // Get user info from Facebook
+            $userResponse = Http::get('https://graph.facebook.com/me', [
+                'fields' => 'id,name,email,picture',
+                'access_token' => $accessToken,
+            ]);
+
+            if (!$userResponse->successful()) {
+                \Log::error('Failed to fetch Facebook user info', [
+                    'status' => $userResponse->status(),
+                    'response' => $userResponse->json()
+                ]);
+                return response()->json([
+                    'message' => 'Failed to fetch user information from Facebook',
+                    'error' => 'FACEBOOK_ERROR'
+                ], 400);
+            }
+
+            $facebookUser = $userResponse->json();
+
             // Check if Facebook ID already exists
-            $existingUser = User::where('facebook_id', $request->facebook_id)->first();
+            $existingUser = User::where('facebook_id', $facebookUser['id'])->first();
             if ($existingUser) {
                 return response()->json([
                     'message' => 'Facebook account already registered',
@@ -600,34 +746,59 @@ class AuthController extends Controller
                 ], 409);
             }
 
+            // Check if email already exists
+            if (!empty($facebookUser['email'])) {
+                $emailUser = User::where('email', $facebookUser['email'])->first();
+                if ($emailUser) {
+                    return response()->json([
+                        'message' => 'Email already registered. Please log in with your existing account.',
+                        'error' => 'EMAIL_EXISTS'
+                    ], 409);
+                }
+            }
+
             // Create new user with Facebook data
+            $profileImageUrl = null;
+            if (isset($facebookUser['picture']['data']['url'])) {
+                $profileImageUrl = $facebookUser['picture']['data']['url'];
+            }
+
             $user = User::create([
-                'name' => $request->name,
-                'email' => null, // No email from Facebook
-                'email_verified_at' => null,
-                'facebook_id' => $request->facebook_id,
-                'profile_image' => $request->profile_picture,
+                'name' => $facebookUser['name'],
+                'email' => $facebookUser['email'] ?? null,
+                'email_verified_at' => !empty($facebookUser['email']) ? now() : null,
+                'facebook_id' => $facebookUser['id'],
+                'profile_image' => $profileImageUrl,
                 'is_seller' => false,
                 'password' => Hash::make(uniqid()), // Random password
             ]);
 
             // Create token
-            $token = $user->createToken('auth_token')->plainTextToken;
+            $newToken = $user->createToken('onlyfarms_token');
+            $expiresAt = now()->addHours(12);
+            $newToken->accessToken->expires_at = $expiresAt;
+            $newToken->accessToken->save();
 
             \Log::info('Created new user with Facebook signup:', [
                 'user_id' => $user->id,
-                'facebook_id' => $request->facebook_id,
-                'name' => $request->name
+                'facebook_id' => $facebookUser['id'],
+                'name' => $facebookUser['name'],
+                'has_email' => !empty($facebookUser['email'])
             ]);
 
             return response()->json([
                 'message' => 'Registration successful',
                 'user' => $user,
-                'token' => $token,
+                'token' => $newToken->plainTextToken,
+                'expires_at' => $expiresAt->toISOString(),
                 'is_new_user' => true
             ], 201);
 
         } catch (\Exception $e) {
+            \Log::error('Facebook signup error:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
                 'message' => 'Facebook signup failed',
                 'error' => $e->getMessage()
@@ -673,25 +844,20 @@ class AuthController extends Controller
             // Create a state parameter for security
             $state = bin2hex(random_bytes(16));
             
-            // Force HTTPS for Facebook OAuth (Facebook requires secure connections)
-            if (strpos($redirectUri, 'http://') === 0) {
-                $redirectUri = str_replace('http://', 'https://', $redirectUri);
-            }
-            
+
             $params = [
                 'client_id' => $clientId,
-                'redirect_uri' => $redirectUri,
-                'scope' => 'public_profile', // Temporarily remove email scope until Facebook app is configured
+                'redirect_uri' => $redirectUri, // HTTPS for Facebook
+                'scope' => 'public_profile,email',
                 'response_type' => 'code',
                 'state' => $state,
-                'auth_type' => 'reauthenticate', // Force fresh login every time
             ];
             
             $facebookLoginUrl = 'https://www.facebook.com/v18.0/dialog/oauth?' . http_build_query($params);
             
             // Debug logging
             \Log::info('Facebook Login URL Generated:', [
-                'redirect_uri' => $redirectUri,
+                'redirect_uri' => $redirectUri, // HTTPS for Facebook
                 'facebook_login_url' => $facebookLoginUrl,
                 'client_id' => $clientId ? 'SET' : 'NOT SET'
             ]);
@@ -765,7 +931,7 @@ class AuthController extends Controller
             
             $params = [
                 'client_id' => $clientId,
-                'redirect_uri' => $redirectUri,
+                'redirect_uri' => $redirectUri, // HTTPS for Facebook
                 'scope' => 'openid email profile',
                 'response_type' => 'code',
                 'state' => $state,
@@ -828,7 +994,7 @@ class AuthController extends Controller
             $tokenResponse = Http::post('https://oauth2.googleapis.com/token', [
                 'client_id' => $clientId,
                 'client_secret' => $clientSecret,
-                'redirect_uri' => $redirectUri,
+                'redirect_uri' => $redirectUri, // HTTPS for Facebook
                 'code' => $code,
                 'grant_type' => 'authorization_code',
             ]);
@@ -873,12 +1039,16 @@ class AuthController extends Controller
             
             if ($user) {
                 // User exists with this Google ID, login them in
-                $token = $user->createToken('auth_token')->plainTextToken;
+                $newToken = $user->createToken('auth_token');
+                $expiresAt = now()->addHours(12);
+                $newToken->accessToken->expires_at = $expiresAt;
+                $newToken->accessToken->save();
                 
                 return response()->json([
                     'message' => 'Login successful',
                     'user' => $user,
-                    'token' => $token,
+                    'token' => $newToken->plainTextToken,
+                    'expires_at' => $expiresAt->toISOString(),
                     'is_new_user' => false
                 ], 200);
             }
@@ -893,7 +1063,10 @@ class AuthController extends Controller
                     'email_verified_at' => now(), // Google verified users
                 ]);
                 
-                $token = $user->createToken('auth_token')->plainTextToken;
+                $newToken = $user->createToken('auth_token');
+                $expiresAt = now()->addHours(12);
+                $newToken->accessToken->expires_at = $expiresAt;
+                $newToken->accessToken->save();
                 
                 return response()->json([
                     'message' => 'Google account linked successfully',
@@ -982,7 +1155,8 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Registration successful',
                 'user' => $user,
-                'token' => $token,
+                'token' => $newToken->plainTextToken,
+                'expires_at' => $expiresAt->toISOString(),
                 'is_new_user' => true
             ], 201);
 
@@ -1079,6 +1253,271 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Email verified successfully',
+        ]);
+    }
+
+    /**
+     * Facebook Exchange Code - Handles code exchange from WebView
+     */
+    public function facebookExchangeCode(Request $request)
+    {
+        try {
+            $request->validate([
+                'code' => 'required|string',
+                'state' => 'required|string',
+            ]);
+
+            $code = $request->code;
+            $state = $request->state;
+
+            \Log::info('Facebook code exchange received', [
+                'code_length' => strlen($code),
+                'state' => $state,
+                'request_method' => $request->method(),
+                'request_data' => $request->all()
+            ]);
+
+            if (!$code) {
+                \Log::error('Facebook code exchange: No authorization code provided');
+                return response()->json([
+                    'message' => 'Authorization code not provided',
+                    'debug' => 'No code parameter in request',
+                    'received_data' => $request->all()
+                ], 400);
+            }
+
+            if (!$state) {
+                \Log::error('Facebook code exchange: No state parameter provided');
+                return response()->json([
+                    'message' => 'State parameter not provided',
+                    'debug' => 'No state parameter in request',
+                    'received_data' => $request->all()
+                ], 400);
+            }
+
+            // Verify state to prevent CSRF attacks
+            $expectedState = session('facebook_auth_state');
+            if ($state !== $expectedState) {
+                \Log::error('Facebook code exchange: State mismatch', [
+                    'expected_state' => $expectedState,
+                    'received_state' => $state
+                ]);
+                return response()->json([
+                    'message' => 'Invalid state parameter',
+                    'error' => 'STATE_MISMATCH'
+                ], 400);
+            }
+
+            // Exchange code for access token
+            $clientId = config('services.facebook.client_id');
+            $clientSecret = config('services.facebook.client_secret');
+            $redirectUri = config('services.facebook.redirect');
+
+            \Log::info('Facebook code exchange config', [
+                'client_id' => $clientId ? 'SET' : 'NOT SET',
+                'client_secret' => $clientSecret ? 'SET' : 'NOT SET',
+                'redirect_uri' => $redirectUri
+            ]);
+
+            $tokenResponse = Http::get('https://graph.facebook.com/v18.0/oauth/access_token', [
+                'client_id' => $clientId,
+                'client_secret' => $clientSecret,
+                'redirect_uri' => $redirectUri, // HTTPS for Facebook
+                'code' => $code,
+            ]);
+
+            if (!$tokenResponse->successful()) {
+                $errorBody = $tokenResponse->json();
+                \Log::error('Facebook code exchange token exchange failed', [
+                    'status' => $tokenResponse->status(),
+                    'error' => $errorBody,
+                    'code_length' => strlen($code),
+                    'redirect_uri' => $redirectUri
+                ]);
+                
+                // Extract Facebook's error message if available
+                $facebookError = $errorBody['error']['message'] ?? 'Unknown error';
+                $facebookErrorCode = $errorBody['error']['code'] ?? 'Unknown';
+                
+                return response()->json([
+                    'message' => 'Facebook authentication failed',
+                    'error' => 'FACEBOOK_TOKEN_EXCHANGE_FAILED',
+                    'facebook_error' => $facebookError,
+                    'facebook_error_code' => $facebookErrorCode,
+                    'debug' => [
+                        'status' => $tokenResponse->status(),
+                        'full_error' => $errorBody,
+                        'redirect_uri_used' => $redirectUri,
+                        'client_id_used' => $clientId
+                    ]
+                ], 400);
+            }
+
+            $tokenData = $tokenResponse->json();
+            $accessToken = $tokenData['access_token'];
+
+            // Get user info from Facebook (without email for now)
+            $userResponse = Http::get('https://graph.facebook.com/v18.0/me', [
+                'fields' => 'id,name,picture.width(500).height(500)', // Higher quality profile picture
+                'access_token' => $accessToken,
+            ]);
+
+            // If the first request fails, try with a simpler picture request
+            if (!$userResponse->successful()) {
+                \Log::warning('Facebook user info request failed with high-res picture, trying simple picture');
+                $userResponse = Http::get('https://graph.facebook.com/v18.0/me', [
+                    'fields' => 'id,name,picture',
+                    'access_token' => $accessToken,
+                ]);
+            }
+
+            if (!$userResponse->successful()) {
+                $errorBody = $userResponse->json();
+                \Log::error('Facebook user info request failed', [
+                    'status' => $userResponse->status(),
+                    'error' => $errorBody
+                ]);
+                return response()->json([
+                    'message' => 'Failed to get user info from Facebook',
+                    'debug' => $errorBody
+                ], 400);
+            }
+
+            $facebookUser = $userResponse->json();
+
+            // Debug Facebook user data
+            \Log::info('Facebook User Data:', [
+                'user_data' => $facebookUser,
+                'has_picture' => isset($facebookUser['picture']),
+                'picture_data' => $facebookUser['picture'] ?? null
+            ]);
+
+            // Check if user already exists by Facebook ID first (most reliable)
+            $user = User::where('facebook_id', $facebookUser['id'])->first();
+
+            if ($user) {
+                // User exists with this Facebook ID, login them in
+                // Update profile picture if not set or if Facebook has a newer one
+                $profileImageUrl = null;
+                if (isset($facebookUser['picture']['data']['url'])) {
+                    $profileImageUrl = $facebookUser['picture']['data']['url'];
+                } else {
+                    // Fallback: construct Facebook profile picture URL manually
+                    $profileImageUrl = "https://graph.facebook.com/{$facebookUser['id']}/picture?type=large";
+                }
+                
+                // Always update profile image with latest Facebook picture
+                $user->update(['profile_image' => $profileImageUrl]);
+                $user->refresh(); // Refresh to get updated data
+                
+                \Log::info('Updated existing user profile image:', [
+                    'user_id' => $user->id,
+                    'profile_image_url' => $profileImageUrl
+                ]);
+                
+                $token = $user->createToken('auth_token')->plainTextToken;
+                
+                return response()->json([
+                    'message' => 'Login successful',
+                    'user' => $user,
+                    'token' => $token,
+                    'is_new_user' => false
+                ], 200);
+            }
+
+            // Check if user exists by email
+            if (!empty($facebookUser['email'])) {
+                $emailUser = User::where('email', $facebookUser['email'])->first();
+                if ($emailUser) {
+                    // Link Facebook account to existing user
+                    $emailUser->update(['facebook_id' => $facebookUser['id']]);
+                    $token = $emailUser->createToken('auth_token')->plainTextToken;
+
+                    \Log::info('Facebook login successful (linked to existing email)', [
+                        'user_id' => $emailUser->id,
+                        'facebook_id' => $facebookUser['id'],
+                        'email' => $facebookUser['email']
+                    ]);
+
+                    return response()->json([
+                        'message' => 'Login successful!',
+                        'user' => $emailUser,
+                        'token' => $token,
+                        'is_new_user' => false
+                    ], 200);
+                }
+            }
+
+            // User doesn't exist - return error asking to sign up
+            return response()->json([
+                'message' => 'Facebook account not registered. Please sign up first.',
+                'error' => 'ACCOUNT_NOT_FOUND',
+                'facebook_user' => [
+                    'id' => $facebookUser['id'],
+                    'name' => $facebookUser['name'],
+                    'email' => $facebookUser['email'] ?? null,
+                    'picture' => $facebookUser['picture']['data']['url'] ?? null
+                ],
+                'requires_signup' => true
+            ], 404);
+
+        } catch (\Exception $e) {
+            \Log::error('Facebook code exchange error:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'message' => 'Facebook code exchange failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+    /**
+     * Facebook Callback - Handles redirect from Facebook OAuth
+     * Returns a simple HTML page that won't cause "Failed to load" errors
+     */
+    public function facebookCallback(Request $request)
+    {
+        $code = $request->query('code');
+        $state = $request->query('state');
+        $error = $request->query('error');
+        $errorDescription = $request->query('error_description');
+
+        \Log::info('Facebook callback received', [
+            'has_code' => !!$code,
+            'has_state' => !!$state,
+            'error' => $error
+        ]);
+
+        // If there's an error, show it
+        if ($error) {
+            \Log::error('Facebook authorization error', [
+                'error' => $error,
+                'description' => $errorDescription
+            ]);
+            return view('emails.facebook-error-simple', [
+                'error' => $error,
+                'description' => $errorDescription
+            ])->setStatusCode(400);
+        }
+
+        // No code received
+        if (!$code) {
+            \Log::error('No authorization code in Facebook callback');
+            return view('emails.facebook-error-simple', [
+                'error' => 'no_code',
+                'description' => 'No authorization code received from Facebook'
+            ])->setStatusCode(400);
+        }
+
+        \Log::info('Facebook callback success - code received');
+
+        // Return HTML that redirects the WebView to complete the flow
+        return view('emails.facebook-callback-complete', [
+            'code' => $code,
+            'state' => $state
         ]);
     }
 }

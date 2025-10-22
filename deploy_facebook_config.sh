@@ -1,0 +1,21 @@
+#!/bin/bash
+
+echo "=== Setting up Railway backend for Facebook OAuth ==="
+echo ""
+echo "You need to set these environment variables in Railway Dashboard:"
+echo ""
+echo "FACEBOOK_CLIENT_ID=1132226609113086"
+echo "FACEBOOK_CLIENT_SECRET=a8a071c694d1b2f361e3aba5439880b9"
+echo "FACEBOOK_REDIRECT_URI=https://onlyfarms-backend-production.up.railway.app/api/auth/facebook/callback"
+echo ""
+echo "Steps:"
+echo "1. Go to Railway Dashboard: https://railway.app"
+echo "2. Select 'onlyfarms-backend' project"
+echo "3. Click the PostgreSQL service (or whatever database)"
+echo "4. Click 'Variables' tab"
+echo "5. Add the three variables above"
+echo "6. Click 'Deploy' to restart the app"
+echo ""
+echo "After deploying, test at:"
+echo "https://onlyfarms-backend-production.up.railway.app/api/health"
+
