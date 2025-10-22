@@ -445,7 +445,6 @@ Route::post('/test-firebase-sms', function(Request $request) {
 // Products & Sellers (public browsing)
 Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{id}', [ProductController::class, 'show']);
-Route::get('/products/{id}/preorder-eligibility', [ProductController::class, 'checkPreorderEligibility']);
 Route::get('/products/{id}/preorder-eligibility', [PreorderController::class, 'checkEligibility']);
 Route::get('/sellers', [SellerController::class, 'index']);
 Route::get('/sellers/{id}', [SellerController::class, 'show']);
@@ -482,13 +481,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancelOrder']);
     
     // Seller confirmation (decreases stock)
-    Route::post('/orders/{orderId}/seller/confirm', [OrderController::class, 'sellerConfirmOrder']);
+    Route::post('/orders/{orderId}/seller/confirm', [SellerOrderController::class, 'sellerConfirm']);
     
     // Seller delivery method confirmation (self-delivery vs Lalamove)
     Route::post('/orders/{orderId}/confirm-delivery-method', [OrderController::class, 'confirmDeliveryMethod']);
     
     // Update order item weight
-    Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateOrderItem']);
+    Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateItem']);
     
     // Buyer confirmation
     Route::post('/orders/{orderId}/buyer/confirm', [OrderController::class, 'buyerConfirm']);
@@ -620,19 +619,17 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     // Crop Schedules (seller/admin blended via controller logic)
     Route::apiResource('crop-schedules', CropScheduleController::class);
 
-    // ✅ Preorders (protected)
+    // ✅ Preorders (protected) - IMPORTANT: Specific routes MUST come before parameterized routes
     Route::get('/preorders', [PreorderController::class, 'index']);
     Route::post('/preorders', [PreorderController::class, 'store']);
-    Route::get('/preorders/{preorder}', [PreorderController::class, 'show']);
-    Route::put('/preorders/{preorder}', [PreorderController::class, 'update']);
-    Route::post('/preorders/{preorder}/cancel', [PreorderController::class, 'cancel']);
+    // Specific routes FIRST (before {id} routes)
     Route::get('/preorders/consumer', [PreorderController::class, 'consumerPreorders']);
     Route::get('/preorders/seller', [PreorderController::class, 'sellerPreorders']);
-    Route::get('/preorders/consumer', [PreorderController::class, 'consumerPreorders']);
-    Route::get('/preorders/seller', [PreorderController::class, 'sellerPreorders']);
+    // Parameterized routes AFTER specific routes
     Route::get('/preorders/{id}', [PreorderController::class, 'show']);
     Route::put('/preorders/{id}', [PreorderController::class, 'update']);
     Route::post('/preorders/{id}/accept', [PreorderController::class, 'accept']);
+    Route::post('/preorders/{id}/reject', [PreorderController::class, 'reject']);
     Route::post('/preorders/{id}/fulfill', [PreorderController::class, 'fulfill']);
     Route::post('/preorders/{id}/cancel', [PreorderController::class, 'cancel']);
     Route::get('/products/{id}/stock-info', [PreorderController::class, 'getStockInfo']);

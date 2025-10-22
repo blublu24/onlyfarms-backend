@@ -35,6 +35,8 @@ class Preorder extends Model
         'status_updated_by',
         'matched_at',
         'ready_at',
+        'accepted_at',
+        'rejected_at',
     ];
 
     /* ==============================
@@ -104,6 +106,8 @@ class Preorder extends Model
         'status_updated_at' => 'datetime',
         'matched_at' => 'datetime',
         'ready_at' => 'datetime',
+        'accepted_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     /* ==============================
