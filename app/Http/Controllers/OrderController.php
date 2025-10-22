@@ -18,7 +18,7 @@ class OrderController extends Controller
      */
     public function index(Request $request)
     {
-        $orders = Order::with('items')
+        $orders = Order::with(['items.product', 'seller'])
             ->where('user_id', $request->user()->id)
             ->latest()
             ->get();
@@ -38,9 +38,18 @@ class OrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
+        // Load order with items and their seller information
+        $order->load([
+            'items' => function ($query) {
+                $query->with(['seller' => function ($sellerQuery) {
+                    $sellerQuery->select('id', 'shop_name', 'user_id');
+                }]);
+            }
+        ]);
+
         return response()->json([
             'message' => 'Order fetched successfully',
-            'data' => $order->load('items')
+            'data' => $order
         ]);
     }
 
@@ -57,6 +66,9 @@ class OrderController extends Controller
                 'items.*.product_id' => 'required|integer|exists:products,product_id',
                 'items.*.quantity' => 'required|integer|min:1|max:999',
                 'items.*.unit' => 'required|string|in:kg,bunches',
+                'items.*.variation_type' => 'nullable|string',
+                'items.*.variation_name' => 'nullable|string',
+                'items.*.variation_price' => 'nullable|numeric|min:0',
                 'address_id' => 'required|exists:addresses,address_id',
                 'notes' => 'nullable|string|max:500',
                 'payment_method' => 'nullable|string|in:cod,gcash,card',
@@ -74,48 +86,66 @@ class OrderController extends Controller
             return DB::transaction(function () use ($data, $user, $deliveryAddress) {
                 $productIds = collect($data['items'])->pluck('product_id')->all();
                 
-                // 🔒 CRITICAL: Lock products for update to prevent race conditions
+                // Fetch products (no need to lock since we're not modifying stock yet)
                 $products = Product::whereIn('product_id', $productIds)
-                    ->lockForUpdate()
                     ->get()
                     ->keyBy('product_id');
 
                 $total = 0.0;
                 $lineItems = [];
 
-                // First pass: Validate stock availability with locked products
+                // Note: Stock validation removed - it will be checked when seller confirms the order
+                // This allows buyers to place orders even if stock is temporarily low,
+                // and sellers can confirm or adjust based on actual availability
+
+                // Calculate totals and prepare line items
                 foreach ($data['items'] as $row) {
                     $product = $products[$row['product_id']] ?? null;
                     if (!$product)
                         abort(422, "Product {$row['product_id']} not found");
-
+                    
                     $qty = (int) $row['quantity'];
                     $unit = $row['unit'];
                     
-                    // Check stock availability with fresh locked data
-                    $currentStock = (float) $product->stocks;
-                    if ($currentStock < $qty) {
-                        abort(422, "Insufficient stock for product '{$product->product_name}'. Available: {$currentStock}kg, Requested: {$qty}kg");
-                    }
-                }
-
-                // Second pass: Calculate totals and prepare line items
-                foreach ($data['items'] as $row) {
-                    $product = $products[$row['product_id']] ?? null;
-                    $qty = (int) $row['quantity'];
-                    $unit = $row['unit'];
-                    
-                    // Determine price based on unit
+                    // Handle variation prices first
                     $unitPrice = 0;
-                    if ($unit === 'kg' && $product->price_kg) {
-                        $unitPrice = (float) $product->price_kg;
-                    } elseif ($unit === 'bunches' && $product->price_bunches) {
-                        $unitPrice = (float) $product->price_bunches;
+                    $lineTotal = 0;
+                    
+                    // Debug logging for price calculation
+                    Log::info('Price calculation debug', [
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'row_data' => $row,
+                        'has_variation_price' => isset($row['variation_price']),
+                        'variation_price_value' => $row['variation_price'] ?? 'not_set',
+                        'qty' => $qty,
+                        'unit' => $unit
+                    ]);
+                    
+                    // Check if this is a variation order (has variation_price)
+                    if (isset($row['variation_price']) && $row['variation_price'] > 0) {
+                        // For variations, use the total variation price
+                        $lineTotal = (float) $row['variation_price'];
+                        $unitPrice = $lineTotal / $qty; // Calculate price per unit
+                        
+                        Log::info('Using variation price', [
+                            'variation_price' => $row['variation_price'],
+                            'lineTotal' => $lineTotal,
+                            'unitPrice' => $unitPrice
+                        ]);
                     } else {
-                        // Fallback to old price field if new pricing not available
-                        $unitPrice = (float) $product->price ?? 0;
+                        // Regular pricing based on unit
+                        if ($unit === 'kg' && $product->price_kg) {
+                            $unitPrice = (float) $product->price_kg;
+                        } elseif ($unit === 'bunches' && $product->price_bunches) {
+                            $unitPrice = (float) $product->price_bunches;
+                        } else {
+                            // Fallback to old price field if new pricing not available
+                            $unitPrice = (float) $product->price ?? 0;
+                        }
+                        $lineTotal = round($unitPrice * $qty, 2);
                     }
-                    $lineTotal = round($unitPrice * $qty, 2);
+                    
                     $total = round($total + $lineTotal, 2);
 
                     $raw = $product->image_url;
@@ -123,15 +153,32 @@ class OrderController extends Controller
                         ? $raw
                         : ($raw ? asset('storage/' . $raw) : null);
 
-                    $lineItems[] = [
+                    $lineItem = [
                         'product_id' => $product->product_id,
                         'seller_id' => $product->seller_id,
                         'product_name' => $product->product_name,
-                        'price' => $unitPrice,
+                        'price' => $lineTotal, // Use total price, not unit price
                         'quantity' => $qty,
                         'unit' => $unit,
                         'image_url' => $fullImage,
+                        'estimated_weight_kg' => $qty,
+                        'price_per_kg_at_order' => $unitPrice,
+                        'variation_type' => $row['variation_type'] ?? null,
+                        'variation_name' => $row['variation_name'] ?? null,
+                        'estimated_price' => $lineTotal, // Add estimated price field
                     ];
+                    
+                    // Debug logging for line item creation
+                    Log::info('Line item being created', [
+                        'lineItem' => $lineItem,
+                        'calculated_values' => [
+                            'lineTotal' => $lineTotal,
+                            'unitPrice' => $unitPrice,
+                            'qty' => $qty
+                        ]
+                    ]);
+                    
+                    $lineItems[] = $lineItem;
 
                     // Debug logging for seller_id
                     Log::info('Order item created', [
@@ -160,34 +207,13 @@ class OrderController extends Controller
                     $order->items()->create($li);
                 }
 
-                // 🔒 ATOMIC: Decrement stock for each product using atomic operations
-                foreach ($data['items'] as $row) {
-                    $product = $products[$row['product_id']];
-                    $qty = (int) $row['quantity'];
-                    
-                    // Use atomic decrement to prevent race conditions
-                    $oldStock = (float) $product->stocks;
-                    $newStock = max(0, $oldStock - $qty);
-                    
-                    // Atomic update with stock validation
-                    $updated = Product::where('product_id', $product->product_id)
-                        ->where('stocks', '>=', $qty) // Double-check stock is still sufficient
-                        ->update(['stocks' => $newStock]);
-                    
-                    if (!$updated) {
-                        // Stock was insufficient - this should not happen due to locks, but safety check
-                        throw new \Exception("Stock became insufficient during order processing for product {$product->product_name}");
-                    }
-                    
-                    Log::info('Stock decremented atomically', [
-                        'product_id' => $product->product_id,
-                        'product_name' => $product->product_name,
-                        'old_stock' => $oldStock,
-                        'new_stock' => $newStock,
-                        'quantity_ordered' => $qty,
-                        'order_id' => $order->id
-                    ]);
-                }
+                // Note: Stock is NOT decremented here - it will only be decremented when seller accepts the order
+                // This prevents stock from being locked up in pending orders
+                Log::info('Order created successfully - stock will be decremented when seller accepts', [
+                    'order_id' => $order->id,
+                    'total_items' => count($data['items']),
+                    'note' => 'Stock remains unchanged until seller confirmation'
+                ]);
 
                 // PayMongo checkout integration
                 if ($order->payment_method !== 'cod') {
@@ -435,10 +461,10 @@ class OrderController extends Controller
         foreach ($order->items as $item) {
             $product = Product::find($item->product_id);
             if ($product) {
-                $currentStock = (float) $product->stocks;
+                $currentStock = (float) $product->stock_kg;
                 $newStock = $currentStock + $item->quantity;
                 
-                $product->update(['stocks' => $newStock]);
+                $product->update(['stock_kg' => $newStock]);
                 
                 Log::info('Stock restored for cancelled order', [
                     'order_id' => $order->id,
@@ -513,7 +539,6 @@ class OrderController extends Controller
 
         // Update order status
         $order->status = 'completed';
-        $order->completed_at = now();
         
         // Mark as paid if COD
         if ($order->payment_method === 'cod' && $order->payment_status === 'pending') {
@@ -555,24 +580,28 @@ class OrderController extends Controller
             return response()->json(['message' => 'Order is already cancelled'], 400);
         }
 
+        // Check if seller has already confirmed the order
+        if ($order->status === 'confirmed' || $order->status === 'preparing' || $order->status === 'ready') {
+            return response()->json(['message' => 'Cannot cancel order - seller has already confirmed and is preparing your order'], 400);
+        }
+
         // Restore stock for all items
         foreach ($order->items as $item) {
             $product = Product::find($item->product_id);
             if ($product) {
-                $product->increment('stock', $item->quantity);
+                $product->increment('stock_kg', $item->quantity);
                 
                 Log::info('Stock restored due to order cancellation:', [
                     'order_id' => $order->id,
                     'product_id' => $product->product_id,
                     'quantity_restored' => $item->quantity,
-                    'new_stock' => $product->stock
+                    'new_stock' => $product->stock_kg
                 ]);
             }
         }
 
         // Update order status
         $order->status = 'cancelled';
-        $order->cancelled_at = now();
         $order->save();
 
         return response()->json([
@@ -600,6 +629,8 @@ class OrderController extends Controller
             'quantity' => 'sometimes|integer|min:1',
             'price' => 'sometimes|numeric|min:0',
             'status' => 'sometimes|string|in:pending,confirmed,preparing,ready,delivered',
+            'actual_weight_kg' => 'sometimes|numeric|min:0',
+            'seller_verification_status' => 'sometimes|string|in:pending,seller_accepted,seller_rejected',
         ]);
 
         // If quantity is being updated, adjust stock
@@ -609,15 +640,15 @@ class OrderController extends Controller
             $difference = $newQuantity - $oldQuantity;
 
             // Check if enough stock
-            if ($difference > 0 && $product->stock < $difference) {
+            if ($difference > 0 && $product->stock_kg < $difference) {
                 return response()->json([
                     'message' => 'Insufficient stock',
-                    'available_stock' => $product->stock
+                    'available_stock' => $product->stock_kg
                 ], 400);
             }
 
             // Update stock
-            $product->decrement('stock', $difference);
+            $product->decrement('stock_kg', $difference);
             
             // Update item total
             $item->quantity = $newQuantity;
@@ -635,10 +666,20 @@ class OrderController extends Controller
             $item->status = $validated['status'];
         }
 
+        // Update actual weight if provided
+        if (isset($validated['actual_weight_kg'])) {
+            $item->actual_weight_kg = $validated['actual_weight_kg'];
+        }
+
+        // Update seller verification status if provided
+        if (isset($validated['seller_verification_status'])) {
+            $item->seller_verification_status = $validated['seller_verification_status'];
+        }
+
         $item->save();
 
         // Recalculate order total
-        $order->total_amount = $order->items->sum('total');
+        $order->total = $order->items->sum('total');
         $order->save();
 
         return response()->json([

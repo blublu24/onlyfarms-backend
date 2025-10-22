@@ -10,6 +10,7 @@ class Order extends Model
 {
     protected $fillable = [
         'user_id',
+        'seller_id',
         'address_id',
         'total',
         'status',
@@ -31,6 +32,11 @@ class Order extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(\App\Models\User::class);
+    }
+
+    public function seller(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'seller_id');
     }
 
     public function items(): HasMany

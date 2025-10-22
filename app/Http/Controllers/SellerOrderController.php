@@ -104,8 +104,9 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'Seller profile not found'], 404);
         }
 
-        $order = Order::with(['items' => function ($q) use ($seller) {
-            $q->where('seller_id', $seller->id);
+        // ✅ FIX: Use USER ID because order_items.seller_id stores the User ID, not Seller model ID
+        $order = Order::with(['items' => function ($q) use ($user) {
+            $q->where('seller_id', $user->id);
         }, 'user', 'address'])->findOrFail($orderId);
 
         // Check if seller actually has items in this order
@@ -113,7 +114,10 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return response()->json($order);
+        return response()->json([
+            'message' => 'Order fetched successfully',
+            'data' => $order
+        ]);
     }
 
     /**
@@ -135,8 +139,8 @@ class SellerOrderController extends Controller
 
         $order = Order::with('items')->findOrFail($orderId);
 
-        // Ensure the order has at least one item from this seller
-        $item = $order->items()->where('seller_id', $seller->id)->first();
+        // ✅ FIX: Use USER ID because order_items.seller_id stores the User ID, not Seller model ID
+        $item = $order->items()->where('seller_id', $user->id)->first();
         if (!$item) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
@@ -212,10 +216,160 @@ class SellerOrderController extends Controller
             return response()->json(['message' => 'Cannot confirm a cancelled order'], 400);
         }
 
+        // 🔒 VALIDATE STOCK BEFORE CONFIRMING: Check if we have enough stock
+        foreach ($order->items as $item) {
+            if ($item->seller_id === $user->id) {
+                $product = Product::where('product_id', $item->product_id)->first();
+                if ($product) {
+                    // Use actual weight if set, otherwise estimated weight or quantity
+                    $requiredWeight = $item->actual_weight_kg ?? $item->estimated_weight_kg ?? $item->quantity;
+                    
+                    // Check total stock
+                    $currentTotalStock = (float) $product->stock_kg;
+                    if ($currentTotalStock < $requiredWeight) {
+                        return response()->json([
+                            'message' => "Insufficient total stock for product '{$product->product_name}'. Available: {$currentTotalStock}kg, Requested: {$requiredWeight}kg.",
+                            'insufficient_stock' => true,
+                            'product_id' => $product->product_id,
+                            'product_name' => $product->product_name,
+                            'available_stock' => $currentTotalStock,
+                            'requested_quantity' => $requiredWeight
+                        ], 422);
+                    }
+                    
+                    // If item has a variation, also check variation-specific stock
+                    if ($item->variation_type) {
+                        $currentVariationStock = 0;
+                        $variationLabel = '';
+                        
+                        switch ($item->variation_type) {
+                            case 'premium':
+                                $currentVariationStock = (float) $product->premium_stock_kg;
+                                $variationLabel = 'Premium';
+                                break;
+                            case 'type_a':
+                            case 'typeA':
+                                $currentVariationStock = (float) $product->type_a_stock_kg;
+                                $variationLabel = 'Type A';
+                                break;
+                            case 'type_b':
+                            case 'typeB':
+                                $currentVariationStock = (float) $product->type_b_stock_kg;
+                                $variationLabel = 'Type B';
+                                break;
+                        }
+                        
+                        if ($currentVariationStock < $requiredWeight) {
+                            return response()->json([
+                                'message' => "Insufficient {$variationLabel} stock for product '{$product->product_name}'. Available: {$currentVariationStock}kg, Requested: {$requiredWeight}kg.",
+                                'insufficient_stock' => true,
+                                'product_id' => $product->product_id,
+                                'product_name' => $product->product_name,
+                                'variation_type' => $item->variation_type,
+                                'available_stock' => $currentVariationStock,
+                                'requested_quantity' => $requiredWeight
+                            ], 422);
+                        }
+                    }
+                }
+            }
+        }
+
         // Update order status to confirmed/preparing
         $order->status = 'confirmed';
-        $order->confirmed_at = now();
         $order->save();
+
+        // 🔒 DECREMENT STOCK: Only now that seller has confirmed the order
+        foreach ($order->items as $item) {
+            if ($item->seller_id === $user->id) {
+                $product = Product::where('product_id', $item->product_id)->first();
+                if ($product) {
+                    // Use actual weight if set by seller, otherwise use estimated weight or quantity
+                    $weightToDecrement = $item->actual_weight_kg ?? $item->estimated_weight_kg ?? $item->quantity;
+                    
+                    // Decrement total stock
+                    $currentTotalStock = (float) $product->stock_kg;
+                    $newTotalStock = max(0, $currentTotalStock - $weightToDecrement);
+                    
+                    // Prepare update array
+                    $updateData = ['stock_kg' => $newTotalStock];
+                    
+                    // If item has a variation, also decrement the variation-specific stock
+                    if ($item->variation_type) {
+                        $variationStockField = null;
+                        $currentVariationStock = 0;
+                        
+                        switch ($item->variation_type) {
+                            case 'premium':
+                                $variationStockField = 'premium_stock_kg';
+                                $currentVariationStock = (float) $product->premium_stock_kg;
+                                break;
+                            case 'type_a':
+                            case 'typeA':
+                                $variationStockField = 'type_a_stock_kg';
+                                $currentVariationStock = (float) $product->type_a_stock_kg;
+                                break;
+                            case 'type_b':
+                            case 'typeB':
+                                $variationStockField = 'type_b_stock_kg';
+                                $currentVariationStock = (float) $product->type_b_stock_kg;
+                                break;
+                        }
+                        
+                        if ($variationStockField) {
+                            $newVariationStock = max(0, $currentVariationStock - $weightToDecrement);
+                            $updateData[$variationStockField] = $newVariationStock;
+                            
+                            Log::info('Variation stock decremented after seller confirmation', [
+                                'product_id' => $product->product_id,
+                                'product_name' => $product->product_name,
+                                'variation_type' => $item->variation_type,
+                                'variation_stock_field' => $variationStockField,
+                                'old_variation_stock' => $currentVariationStock,
+                                'new_variation_stock' => $newVariationStock,
+                                'weight_decremented' => $weightToDecrement,
+                            ]);
+                        }
+                    }
+                    
+                    // Increment total_sold field
+                    $currentTotalSold = (float) $product->total_sold;
+                    $newTotalSold = $currentTotalSold + $weightToDecrement;
+                    $updateData['total_sold'] = $newTotalSold;
+                    
+                    // Update product with both total and variation stocks AND total_sold
+                    $product->update($updateData);
+                    
+                    // Refresh product model to get updated values
+                    $product->refresh();
+                    
+                    // Broadcast stock and sales updates to frontend via Reverb
+                    try {
+                        broadcast(new \App\Events\ProductStockUpdated($product));
+                        broadcast(new \App\Events\ProductSalesUpdated($product));
+                    } catch (\Exception $e) {
+                        Log::warning('Failed to broadcast product updates', [
+                            'error' => $e->getMessage(),
+                            'product_id' => $product->product_id
+                        ]);
+                    }
+                    
+                    Log::info('Stock decremented and sales updated after seller confirmation', [
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'old_total_stock' => $currentTotalStock,
+                        'new_total_stock' => $newTotalStock,
+                        'old_total_sold' => $currentTotalSold,
+                        'new_total_sold' => $newTotalSold,
+                        'weight_decremented' => $weightToDecrement,
+                        'has_variation' => !empty($item->variation_type),
+                        'variation_type' => $item->variation_type,
+                        'order_id' => $order->id,
+                        'seller_id' => $user->id
+                    ]);
+                }
+            }
+        }
 
         return response()->json([
             'message' => 'Order confirmed successfully',
@@ -231,7 +385,7 @@ class SellerOrderController extends Controller
         $user = $request->user();
         $order = Order::with('items')->findOrFail($id);
 
-        // Ensure the order has at least one item from this seller
+        // ✅ CORRECT: Already using USER ID
         $hasSellerItems = $order->items()->where('seller_id', $user->id)->exists();
         if (!$hasSellerItems) {
             return response()->json(['message' => 'Unauthorized'], 403);

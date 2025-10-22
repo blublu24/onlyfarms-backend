@@ -6,8 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Admin;
 use App\Models\CropSchedule;
 use App\Models\Harvest;
+use App\Models\Product;
 use App\Events\HarvestPublished;
+use App\Events\ProductStockUpdated;
+use App\Events\ProductSalesUpdated;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class HarvestController extends Controller
 {
@@ -111,7 +115,87 @@ class HarvestController extends Controller
             'verified_by' => $actor->id,
         ]);
 
+        // 🔄 AUTOMATICALLY UPDATE STOCK when admin verifies harvest
+        $this->updateProductStock($harvest);
+
         return response()->json($harvest->load(['cropSchedule.product', 'cropSchedule.seller', 'product', 'verifier']));
+    }
+
+    /**
+     * Update product stock when harvest is verified
+     */
+    private function updateProductStock(Harvest $harvest)
+    {
+        try {
+            // Get the product from the harvest's crop schedule
+            $product = $harvest->cropSchedule->product;
+            
+            if (!$product) {
+                Log::warning('Harvest verification: No product found for crop schedule', [
+                    'harvest_id' => $harvest->id,
+                    'crop_schedule_id' => $harvest->crop_schedule_id
+                ]);
+                return;
+            }
+
+            $harvestWeight = (float) $harvest->actual_weight_kg;
+            $variationType = $harvest->variation_type;
+
+            if (!$harvestWeight || $harvestWeight <= 0) {
+                Log::warning('Harvest verification: Invalid harvest weight', [
+                    'harvest_id' => $harvest->id,
+                    'actual_weight_kg' => $harvest->actual_weight_kg
+                ]);
+                return;
+            }
+
+            // Update total stock
+            $currentTotalStock = (float) $product->stock_kg;
+            $newTotalStock = $currentTotalStock + $harvestWeight;
+
+            // Update variation-specific stock
+            $updateData = ['stock_kg' => $newTotalStock];
+            
+            if ($variationType && in_array($variationType, ['premium', 'type_a', 'type_b'])) {
+                $variationField = $variationType . '_stock_kg';
+                if (isset($product->$variationField)) {
+                    $currentVariationStock = (float) $product->$variationField;
+                    $newVariationStock = $currentVariationStock + $harvestWeight;
+                    $updateData[$variationField] = $newVariationStock;
+                }
+            }
+
+            // Update the product
+            $product->update($updateData);
+
+            // Broadcast stock updates to frontend
+            try {
+                broadcast(new ProductStockUpdated($product));
+            } catch (\Exception $e) {
+                Log::warning('Failed to broadcast product stock update', [
+                    'error' => $e->getMessage(),
+                    'product_id' => $product->product_id
+                ]);
+            }
+
+            Log::info('Stock updated after harvest verification', [
+                'harvest_id' => $harvest->id,
+                'product_id' => $product->product_id,
+                'product_name' => $product->product_name,
+                'harvest_weight' => $harvestWeight,
+                'variation_type' => $variationType,
+                'old_total_stock' => $currentTotalStock,
+                'new_total_stock' => $newTotalStock,
+                'updated_fields' => array_keys($updateData)
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to update product stock after harvest verification', [
+                'harvest_id' => $harvest->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
     }
 
     /**
