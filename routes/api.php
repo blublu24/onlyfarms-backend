@@ -363,13 +363,53 @@ Route::post('/verify-email-old', [\App\Http\Controllers\AuthController::class, '
 // General mail send endpoint (PHPMailer)
 Route::post('/mail/send', [MailController::class, 'send'])->middleware('throttle:3,1');
 
-// Social login routes are disabled
-Route::match(['get','post'], '/auth/facebook/{any?}', function() {
-    return response()->json([
-        'message' => 'Social login (Facebook) is currently disabled',
-        'code' => 'SOCIAL_LOGIN_DISABLED'
-    ], 410);
-})->where('any', '.*');
+// Facebook Authentication Routes (Public)
+Route::get('/auth/facebook/login-url', [AuthController::class, 'getFacebookLoginUrl']);
+Route::get('/auth/facebook/callback', [AuthController::class, 'facebookCallback']);
+Route::post('/auth/facebook/signup', [AuthController::class, 'facebookSignup']);
+Route::post('/auth/facebook', [AuthController::class, 'facebookLogin']);
+Route::post('/auth/facebook/check-user', [AuthController::class, 'checkFacebookUser']);
+
+// Facebook Exchange Code
+Route::post('/auth/facebook/exchange-code', function (\Illuminate\Http\Request $request) {
+    $code = $request->input('code');
+    $clientId = config('services.facebook.client_id');
+    $clientSecret = config('services.facebook.client_secret');
+    $redirectUri = config('services.facebook.redirect');
+
+    if (!$code) {
+        return response()->json(['error' => 'No code provided'], 400);
+    }
+
+    try {
+        $response = \Illuminate\Support\Facades\Http::get('https://graph.facebook.com/v18.0/oauth/access_token', [
+            'client_id' => $clientId,
+            'client_secret' => $clientSecret,
+            'redirect_uri' => $redirectUri,
+            'code' => $code,
+        ]);
+
+        if ($response->successful()) {
+            $data = $response->json();
+            return response()->json([
+                'status' => 'success',
+                'access_token' => $data['access_token'],
+                'expires_in' => $data['expires_in'],
+                'token_type' => $data['token_type'],
+                'user_id' => $data['user_id']
+            ]);
+        } else {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to exchange code for access token',
+                'response' => $response->json()
+            ], $response->status());
+        }
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
 
 Route::match(['get','post'], '/auth/google/{any?}', function() {
     return response()->json([

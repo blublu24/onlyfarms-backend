@@ -22,12 +22,18 @@ class AdminAuthController extends Controller
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        // Create token using Sanctum with admin guard
-        $token = $admin->createToken('admin_token', ['admin'])->plainTextToken;
+        // Create token using Sanctum with admin guard and set expiration
+        $newToken = $admin->createToken('admin_token', ['admin']);
+        // Set a concrete expiration (12 hours) on the token model for extra safety
+        $expiresAt = now()->addHours(12);
+        $accessToken = $newToken->accessToken;
+        $accessToken->expires_at = $expiresAt;
+        $accessToken->save();
 
         return response()->json([
             'admin' => $admin,
-            'token' => $token,
+            'token' => $newToken->plainTextToken,
+            'expires_at' => $expiresAt->toISOString(),
         ]);
     }
 }

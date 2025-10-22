@@ -25,6 +25,7 @@ class Seller extends Model
         'government_id_front',
         'government_id_back',
         'status',
+        'rejection_reason',
     ];
 
     // 🔗 A seller belongs to a user
