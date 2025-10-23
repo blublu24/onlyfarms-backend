@@ -160,6 +160,16 @@ class ProductController extends Controller
         $product->vegetable_slug = $vegetableSlug;
 
         // Variation prices and stocks are already loaded from the database
+        
+        // Add debug info for button state calculation
+        $product->debug_info = [
+            'premium_stock_kg' => (float)($product->premium_stock_kg ?? 0),
+            'type_a_stock_kg' => (float)($product->type_a_stock_kg ?? 0),
+            'type_b_stock_kg' => (float)($product->type_b_stock_kg ?? 0),
+            'main_stock_kg' => (float)($product->stock_kg ?? 0),
+            'total_variation_stock' => (float)($product->premium_stock_kg ?? 0) + (float)($product->type_a_stock_kg ?? 0) + (float)($product->type_b_stock_kg ?? 0),
+            'available_units' => $product->available_units
+        ];
 
         return response()->json([
             'message' => 'Product fetched successfully',
