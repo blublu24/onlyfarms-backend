@@ -483,13 +483,35 @@ class AnalyticsController extends Controller
                 ->where('o.status', 'completed')
                 ->count();
 
+            // Check total products
+            $totalProducts = DB::table('products')->count();
+
+            // Check total order_items
+            $totalOrderItems = DB::table('order_items')->count();
+
+            // Check if order_items have product_id
+            $orderItemsWithProductId = DB::table('order_items')
+                ->whereNotNull('product_id')
+                ->count();
+
+            // Test a simple join to see what's happening
+            $testJoin = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->where('o.status', 'completed')
+                ->selectRaw('oi.product_id, oi.seller_id, oi.quantity, oi.price')
+                ->first();
+
             return response()->json([
                 'completed_orders' => $completedOrders,
+                'total_products' => $totalProducts,
+                'total_order_items' => $totalOrderItems,
+                'order_items_with_product_id' => $orderItemsWithProductId,
                 'order_items_with_seller_id' => $orderItemsWithSeller,
                 'products_with_seller_id' => $productsWithSeller,
                 'sellers_count' => $sellersCount,
                 'products_with_ratings' => $productsWithRatings,
-                'order_items_with_products' => $orderItemsWithProducts
+                'order_items_with_products' => $orderItemsWithProducts,
+                'test_join_data' => $testJoin
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
