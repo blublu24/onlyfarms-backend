@@ -181,4 +181,55 @@ class AnalyticsController extends Controller
 
         return response()->json($data);
     }
+
+    // 📊 Top Yearly Sales (last 12 months)
+    public function yearlySales()
+    {
+        $data = DB::table('order_items as oi')
+            ->join('orders as o', 'oi.order_id', '=', 'o.id')
+            ->where('o.status', 'completed')
+            ->where('oi.created_at', '>=', now()->subMonths(12))
+            ->selectRaw('YEAR(oi.created_at) as year, SUM(oi.price * oi.quantity) as total_sales')
+            ->groupBy('year')
+            ->orderBy('year')
+            ->get();
+
+        return response()->json($data);
+    }
+
+    // 🏆 Most Bought Products (top 10)
+    public function mostBoughtProducts()
+    {
+        $data = DB::table('order_items as oi')
+            ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+            ->join('orders as o', 'oi.order_id', '=', 'o.id')
+            ->where('o.status', 'completed')
+            ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url, 
+                        SUM(oi.quantity) as total_quantity_sold,
+                        COUNT(DISTINCT o.id) as total_orders')
+            ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url')
+            ->orderByDesc('total_quantity_sold')
+            ->limit(10)
+            ->get();
+
+        return response()->json($data);
+    }
+
+    // ⭐ Most Rated Products (top 10)
+    public function mostRatedProducts()
+    {
+        $data = DB::table('products as p')
+            ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
+            ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url,
+                        AVG(r.rating) as average_rating, 
+                        COUNT(r.id) as total_reviews')
+            ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url')
+            ->having('total_reviews', '>', 0)
+            ->orderByDesc('average_rating')
+            ->orderByDesc('total_reviews')
+            ->limit(10)
+            ->get();
+
+        return response()->json($data);
+    }
 }
