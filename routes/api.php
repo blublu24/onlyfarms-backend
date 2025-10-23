@@ -305,14 +305,26 @@ Route::get('/test-image/{filename}', function ($filename) {
 // Debug: Create storage link manually
 Route::post('/debug/create-storage-link', function () {
     try {
-        // Remove existing link if it exists
         $publicStoragePath = public_path('storage');
+        $storagePath = storage_path('app/public');
+        
+        // Check if it's already a link
         if (is_link($publicStoragePath)) {
-            unlink($publicStoragePath);
+            return response()->json([
+                'success' => true,
+                'message' => 'Storage link already exists',
+                'storage_path' => $storagePath,
+                'public_path' => $publicStoragePath,
+                'link_exists' => true,
+            ]);
+        }
+        
+        // If it's a directory, remove it first
+        if (is_dir($publicStoragePath)) {
+            rmdir($publicStoragePath);
         }
         
         // Create the storage link
-        $storagePath = storage_path('app/public');
         $result = symlink($storagePath, $publicStoragePath);
         
         return response()->json([
@@ -327,6 +339,8 @@ Route::post('/debug/create-storage-link', function () {
         return response()->json([
             'success' => false,
             'error' => $e->getMessage(),
+            'storage_path' => storage_path('app/public'),
+            'public_path' => public_path('storage'),
         ], 500);
     }
 });
