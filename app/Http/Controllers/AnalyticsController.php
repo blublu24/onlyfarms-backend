@@ -156,7 +156,8 @@ class AnalyticsController extends Controller
         try {
             $data = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
-                ->join('sellers as s', 'oi.seller_id', '=', 's.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->join('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
                 ->selectRaw('s.shop_name, u.name, u.avatar as profile_image, SUM(oi.price * oi.quantity) as revenue, COUNT(DISTINCT o.id) as orders')
@@ -175,14 +176,12 @@ class AnalyticsController extends Controller
     {
         try {
             $data = DB::table('products as p')
-                ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('p.ratings_count', '>', 0)
                 ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
-                            s.shop_name, AVG(r.rating) as average_rating, COUNT(r.id) as total_reviews')
-                ->groupBy('p.product_id', 'p.product_name', 'p.price_kg', 'p.price_bunches', 'p.image_url', 'p.full_image_url', 's.shop_name')
-                ->having('total_reviews', '>', 0)
-                ->orderByDesc('average_rating')
-                ->orderByDesc('total_reviews')
+                            s.shop_name, p.avg_rating as average_rating, p.ratings_count as total_reviews')
+                ->orderByDesc('p.avg_rating')
+                ->orderByDesc('p.ratings_count')
                 ->first();
 
             return response()->json($data);
@@ -234,21 +233,107 @@ class AnalyticsController extends Controller
     {
         try {
             $data = DB::table('products as p')
-                ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('p.ratings_count', '>', 0)
                 ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url,
-                            s.shop_name, AVG(r.rating) as average_rating, 
-                            COUNT(r.id) as total_reviews')
-                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url', 's.shop_name')
-                ->having('total_reviews', '>', 0)
-                ->orderByDesc('average_rating')
-                ->orderByDesc('total_reviews')
+                            s.shop_name, p.avg_rating as average_rating, 
+                            p.ratings_count as total_reviews')
+                ->orderByDesc('p.avg_rating')
+                ->orderByDesc('p.ratings_count')
                 ->limit(10)
                 ->get();
 
             return response()->json($data);
         } catch (\Exception $e) {
             return response()->json(['error' => 'No rated products available'], 200);
+        }
+    }
+
+    // 📊 Daily Product Sales (individual products sold today)
+    public function dailyProductSales()
+    {
+        try {
+            $data = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->whereDate('oi.created_at', today())
+                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
+                            SUM(oi.price * oi.quantity) as total_sales_amount')
+                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No daily product sales available'], 200);
+        }
+    }
+
+    // 📊 Weekly Product Sales (individual products sold this week)
+    public function weeklyProductSales()
+    {
+        try {
+            $data = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->where('oi.created_at', '>=', now()->subWeek())
+                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
+                            SUM(oi.price * oi.quantity) as total_sales_amount')
+                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No weekly product sales available'], 200);
+        }
+    }
+
+    // 📊 Monthly Product Sales (individual products sold this month)
+    public function monthlyProductSales()
+    {
+        try {
+            $data = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->where('oi.created_at', '>=', now()->subMonth())
+                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
+                            SUM(oi.price * oi.quantity) as total_sales_amount')
+                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No monthly product sales available'], 200);
+        }
+    }
+
+    // 📊 Yearly Product Sales (individual products sold this year)
+    public function yearlyProductSales()
+    {
+        try {
+            $data = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->where('oi.created_at', '>=', now()->subYear())
+                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
+                            SUM(oi.price * oi.quantity) as total_sales_amount')
+                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No yearly product sales available'], 200);
         }
     }
 }
