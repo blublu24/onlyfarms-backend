@@ -154,30 +154,35 @@ class AnalyticsController extends Controller
     public function topSeller()
     {
         try {
-            // Try to get actual seller from order_items.seller_id
-            $data = DB::table('order_items as oi')
+            $topSeller = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
-                ->join('users as u', 'oi.seller_id', '=', 'u.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->join('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
-                ->selectRaw('u.name, u.avatar as profile_image, COUNT(DISTINCT o.id) as orders')
-                ->groupBy('u.id', 'u.name', 'u.avatar')
-                ->orderByDesc('orders')
+                ->selectRaw('
+                    u.id as user_id,
+                    u.name as seller_name,
+                    u.profile_image,
+                    s.shop_name,
+                    COUNT(DISTINCT o.id) as total_orders,
+                    SUM(oi.quantity) as total_products_sold,
+                    SUM(oi.price * oi.quantity) as total_revenue
+                ')
+                ->groupBy('u.id', 'u.name', 'u.profile_image', 's.shop_name')
+                ->orderByDesc('total_orders')
+                ->orderByDesc('total_revenue')
                 ->first();
 
-            if ($data) {
-                return response()->json($data);
-            }
-
-            // Fallback: Return a generic top seller without revenue
-            $totalOrders = DB::table('orders')
-                ->where('status', 'completed')
-                ->count();
-
-            if ($totalOrders > 0) {
+            if ($topSeller) {
                 return response()->json([
-                    'name' => 'Top Seller',
-                    'profile_image' => null,
-                    'orders' => $totalOrders
+                    'user_id' => $topSeller->user_id,
+                    'name' => $topSeller->seller_name,
+                    'profile_image' => $topSeller->profile_image,
+                    'shop_name' => $topSeller->shop_name,
+                    'orders' => $topSeller->total_orders,
+                    'products_sold' => $topSeller->total_products_sold,
+                    'revenue' => $topSeller->total_revenue
                 ]);
             }
 
@@ -191,41 +196,68 @@ class AnalyticsController extends Controller
     public function topRatedProduct()
     {
         try {
-            // First try with ratings_count > 0
-            $data = DB::table('products as p')
+            $topRatedProduct = DB::table('products as p')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->where('p.ratings_count', '>', 0)
-                ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, 
-                            s.shop_name, p.avg_rating as average_rating, p.ratings_count as total_reviews')
+                ->where('p.avg_rating', '>', 0)
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.price_kg,
+                    p.price_bunches,
+                    p.image_url,
+                    p.avg_rating as average_rating,
+                    p.ratings_count as total_reviews,
+                    s.shop_name,
+                    s.id as seller_id
+                ')
                 ->orderByDesc('p.avg_rating')
                 ->orderByDesc('p.ratings_count')
                 ->first();
 
-            if ($data) {
-                return response()->json($data);
+            if ($topRatedProduct) {
+                return response()->json([
+                    'product_id' => $topRatedProduct->product_id,
+                    'product_name' => $topRatedProduct->product_name,
+                    'price_kg' => $topRatedProduct->price_kg,
+                    'price_bunches' => $topRatedProduct->price_bunches,
+                    'image_url' => $topRatedProduct->image_url,
+                    'average_rating' => round($topRatedProduct->average_rating, 1),
+                    'total_reviews' => $topRatedProduct->total_reviews,
+                    'shop_name' => $topRatedProduct->shop_name,
+                    'seller_id' => $topRatedProduct->seller_id
+                ]);
             }
 
-            // If no rated products, return any product with shop name
-            $data = DB::table('products as p')
+            // Fallback: Return any product with shop name if no rated products
+            $anyProduct = DB::table('products as p')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
-                ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, 
-                            s.shop_name, 0 as average_rating, 0 as total_reviews')
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.price_kg,
+                    p.price_bunches,
+                    p.image_url,
+                    s.shop_name,
+                    s.id as seller_id
+                ')
                 ->first();
 
-            if ($data) {
-                return response()->json($data);
+            if ($anyProduct) {
+                return response()->json([
+                    'product_id' => $anyProduct->product_id,
+                    'product_name' => $anyProduct->product_name,
+                    'price_kg' => $anyProduct->price_kg,
+                    'price_bunches' => $anyProduct->price_bunches,
+                    'image_url' => $anyProduct->image_url,
+                    'average_rating' => 0,
+                    'total_reviews' => 0,
+                    'shop_name' => $anyProduct->shop_name,
+                    'seller_id' => $anyProduct->seller_id
+                ]);
             }
 
-            // Ultimate fallback - return a generic product
-            return response()->json([
-                'product_name' => 'Featured Product',
-                'price_kg' => 0,
-                'price_bunches' => 0,
-                'image_url' => null,
-                'shop_name' => 'Featured Shop',
-                'average_rating' => 0,
-                'total_reviews' => 0
-            ]);
+            return response()->json(['error' => 'No products available'], 200);
         } catch (\Exception $e) {
             return response()->json(['error' => 'No rated products available', 'debug' => $e->getMessage()], 200);
         }
@@ -294,21 +326,30 @@ class AnalyticsController extends Controller
     public function dailyProductSales()
     {
         try {
-            $data = DB::table('order_items as oi')
+            $today = now()->format('Y-m-d');
+            
+            $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->where('o.status', 'completed')
-                ->whereDate('oi.created_at', today())
-                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
-                            SUM(oi.price * oi.quantity) as total_sales_amount')
-                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->whereDate('oi.created_at', $today)
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($data);
+            return response()->json($productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No daily product sales available'], 200);
+            return response()->json(['error' => 'No daily product sales available', 'debug' => $e->getMessage()], 200);
         }
     }
 
@@ -316,21 +357,31 @@ class AnalyticsController extends Controller
     public function weeklyProductSales()
     {
         try {
-            $data = DB::table('order_items as oi')
+            $weekStart = now()->startOfWeek();
+            $weekEnd = now()->endOfWeek();
+            
+            $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->where('o.status', 'completed')
-                ->where('oi.created_at', '>=', now()->subWeek())
-                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
-                            SUM(oi.price * oi.quantity) as total_sales_amount')
-                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->whereBetween('oi.created_at', [$weekStart, $weekEnd])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($data);
+            return response()->json($productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No weekly product sales available'], 200);
+            return response()->json(['error' => 'No weekly product sales available', 'debug' => $e->getMessage()], 200);
         }
     }
 
@@ -338,21 +389,31 @@ class AnalyticsController extends Controller
     public function monthlyProductSales()
     {
         try {
-            $data = DB::table('order_items as oi')
+            $monthStart = now()->startOfMonth();
+            $monthEnd = now()->endOfMonth();
+            
+            $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->where('o.status', 'completed')
-                ->where('oi.created_at', '>=', now()->subMonth())
-                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
-                            SUM(oi.price * oi.quantity) as total_sales_amount')
-                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->whereBetween('oi.created_at', [$monthStart, $monthEnd])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($data);
+            return response()->json($productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No monthly product sales available'], 200);
+            return response()->json(['error' => 'No monthly product sales available', 'debug' => $e->getMessage()], 200);
         }
     }
 
@@ -360,21 +421,31 @@ class AnalyticsController extends Controller
     public function yearlyProductSales()
     {
         try {
-            $data = DB::table('order_items as oi')
+            $yearStart = now()->startOfYear();
+            $yearEnd = now()->endOfYear();
+            
+            $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->where('o.status', 'completed')
-                ->where('oi.created_at', '>=', now()->subYear())
-                ->selectRaw('p.product_name, s.shop_name, SUM(oi.quantity) as total_quantity_sold, 
-                            SUM(oi.price * oi.quantity) as total_sales_amount')
-                ->groupBy('p.product_id', 'p.product_name', 's.shop_name')
+                ->whereBetween('oi.created_at', [$yearStart, $yearEnd])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-        return response()->json($data);
+            return response()->json($productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No yearly product sales available'], 200);
+            return response()->json(['error' => 'No yearly product sales available', 'debug' => $e->getMessage()], 200);
         }
     }
 
