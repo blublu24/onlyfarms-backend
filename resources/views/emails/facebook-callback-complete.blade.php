@@ -55,8 +55,25 @@
     </div>
 
     <script>
-        // Send the code to the frontend to complete authentication
-        window.location.href = 'http://192.168.1.16:8000/api/auth/facebook/callback?code={{ $code }}&state={{ $state }}';
+        // Instead of redirecting, send a message to the parent window (mobile app)
+        // This will be intercepted by the WebView's onNavigationStateChange
+        try {
+            // Send the code and state to the mobile app
+            if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'FACEBOOK_AUTH_SUCCESS',
+                    code: '{{ $code }}',
+                    state: '{{ $state }}'
+                }));
+            } else {
+                // Fallback: redirect to a special URL that the WebView can intercept
+                window.location.href = 'onlyfarms://facebook-auth-success?code={{ $code }}&state={{ $state }}';
+            }
+        } catch (error) {
+            console.error('Error sending message to mobile app:', error);
+            // Fallback redirect
+            window.location.href = 'onlyfarms://facebook-auth-success?code={{ $code }}&state={{ $state }}';
+        }
     </script>
 </body>
 </html>

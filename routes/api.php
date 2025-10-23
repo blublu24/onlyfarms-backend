@@ -12,6 +12,15 @@ Route::get('/health', function () {
     ]);
 });
 
+// Test endpoint for Facebook direct auth
+Route::post('/test-facebook-auth', function () {
+    return response()->json([
+        'success' => true,
+        'message' => 'Facebook direct auth test endpoint working',
+        'timestamp' => now()->toISOString()
+    ]);
+});
+
 // ==================== DEBUG ENDPOINTS ====================
 // These endpoints allow you to check all tables easily
 
@@ -206,7 +215,10 @@ Route::get('/debug/facebook-config', function () {
             'FACEBOOK_CLIENT_ID' => env('FACEBOOK_CLIENT_ID') ?? 'NOT SET',
             'FACEBOOK_CLIENT_SECRET' => env('FACEBOOK_CLIENT_SECRET') ? 'SET' : 'NOT SET',
             'FACEBOOK_REDIRECT_URI' => env('FACEBOOK_REDIRECT_URI') ?? 'NOT SET',
-        ]
+        ],
+        'expected_redirect_uri' => url('/auth/facebook/callback'),
+        'current_domain' => request()->getHost(),
+        'is_https' => request()->secure(),
     ]);
 });
 
@@ -455,6 +467,7 @@ Route::get('/auth/facebook/callback', [AuthController::class, 'facebookCallback'
 Route::post('/auth/facebook/signup', [AuthController::class, 'facebookSignup']);
 Route::post('/auth/facebook', [AuthController::class, 'facebookLogin']);
 Route::post('/auth/facebook/check-user', [AuthController::class, 'checkFacebookUser']);
+Route::post('/auth/facebook/direct-auth', [AuthController::class, 'facebookDirectAuth']);
 
 // Facebook Exchange Code
 Route::post('/auth/facebook/exchange-code', function (\Illuminate\Http\Request $request) {

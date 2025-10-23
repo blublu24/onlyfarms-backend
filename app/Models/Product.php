@@ -553,6 +553,7 @@ class Product extends Model
         $baseUrl = config('app.url');
         
         // Images are stored in storage/app/public and should be accessed via /storage/
+        // But the imageUrl already contains the path without /storage/ prefix
         return $baseUrl . '/storage/' . $imageUrl;
     }
 

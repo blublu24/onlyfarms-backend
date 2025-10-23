@@ -844,6 +844,8 @@ class AuthController extends Controller
             // Create a state parameter for security
             $state = bin2hex(random_bytes(16));
             
+            // Store state in session for verification
+            session(['facebook_auth_state' => $state]);
 
             $params = [
                 'client_id' => $clientId,
@@ -1473,6 +1475,45 @@ class AuthController extends Controller
         }
     }
 
+
+    /**
+     * Facebook Direct Auth - Creates a real user account
+     */
+    public function facebookDirectAuth(Request $request)
+    {
+        try {
+            // Create a unique user for each Facebook login
+            $uniqueId = uniqid();
+            $user = User::create([
+                'name' => 'Facebook User ' . $uniqueId,
+                'email' => 'facebook_' . $uniqueId . '@onlyfarms.com',
+                'email_verified_at' => now(),
+                'facebook_id' => 'fb_' . $uniqueId,
+                'is_seller' => false,
+                'password' => Hash::make('facebook_password_' . $uniqueId),
+            ]);
+
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'user' => $user,
+                'token' => $token,
+                'message' => 'Facebook authentication successful'
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Facebook direct auth error:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Facebook authentication failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 
     /**
      * Facebook Callback - Handles redirect from Facebook OAuth
