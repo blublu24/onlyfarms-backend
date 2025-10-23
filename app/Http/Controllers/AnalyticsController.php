@@ -154,21 +154,29 @@ class AnalyticsController extends Controller
     public function topSeller()
     {
         try {
-            // Fallback: Return a generic top seller since we have sales but no seller relationships
-            $totalSales = DB::table('order_items as oi')
+            // Try to get actual seller from order_items.seller_id
+            $data = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('users as u', 'oi.seller_id', '=', 'u.id')
                 ->where('o.status', 'completed')
-                ->sum(DB::raw('oi.price * oi.quantity'));
+                ->selectRaw('u.name, u.avatar as profile_image, COUNT(DISTINCT o.id) as orders')
+                ->groupBy('u.id', 'u.name', 'u.avatar')
+                ->orderByDesc('orders')
+                ->first();
 
+            if ($data) {
+                return response()->json($data);
+            }
+
+            // Fallback: Return a generic top seller without revenue
             $totalOrders = DB::table('orders')
                 ->where('status', 'completed')
                 ->count();
 
-            if ($totalSales > 0) {
+            if ($totalOrders > 0) {
                 return response()->json([
                     'name' => 'Top Seller',
                     'profile_image' => null,
-                    'revenue' => $totalSales,
                     'orders' => $totalOrders
                 ]);
             }
@@ -185,9 +193,10 @@ class AnalyticsController extends Controller
         try {
             // First try with ratings_count > 0
             $data = DB::table('products as p')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->where('p.ratings_count', '>', 0)
-                ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
-                            p.avg_rating as average_rating, p.ratings_count as total_reviews')
+                ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, 
+                            s.shop_name, p.avg_rating as average_rating, p.ratings_count as total_reviews')
                 ->orderByDesc('p.avg_rating')
                 ->orderByDesc('p.ratings_count')
                 ->first();
@@ -196,10 +205,11 @@ class AnalyticsController extends Controller
                 return response()->json($data);
             }
 
-            // If no rated products, return any product as fallback
+            // If no rated products, return any product with shop name
             $data = DB::table('products as p')
-                ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
-                            0 as average_rating, 0 as total_reviews')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, 
+                            s.shop_name, 0 as average_rating, 0 as total_reviews')
                 ->first();
 
             if ($data) {
@@ -212,7 +222,7 @@ class AnalyticsController extends Controller
                 'price_kg' => 0,
                 'price_bunches' => 0,
                 'image_url' => null,
-                'full_image_url' => null,
+                'shop_name' => 'Featured Shop',
                 'average_rating' => 0,
                 'total_reviews' => 0
             ]);
@@ -263,7 +273,7 @@ class AnalyticsController extends Controller
     public function mostRatedProducts()
     {
         try {
-            $data = DB::table('products as p')
+        $data = DB::table('products as p')
                 ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->where('p.ratings_count', '>', 0)
                 ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url,
@@ -362,7 +372,7 @@ class AnalyticsController extends Controller
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($data);
+        return response()->json($data);
         } catch (\Exception $e) {
             return response()->json(['error' => 'No yearly product sales available'], 200);
         }
