@@ -499,7 +499,7 @@ class AnalyticsController extends Controller
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->where('o.status', 'completed')
                 ->selectRaw('oi.product_id, oi.seller_id, oi.quantity, oi.price')
-                ->first();
+            ->first();
 
             return response()->json([
                 'completed_orders' => $completedOrders,
@@ -537,7 +537,7 @@ class AnalyticsController extends Controller
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
                 ->where('o.status', 'completed')
-                ->where($dateFilter['column'], $dateFilter['operator'], $dateFilter['value'])
+                ->whereBetween('o.created_at', [$dateFilter['startDate'], $dateFilter['endDate']])
                 ->selectRaw('
                     p.product_name,
                     SUM(oi.quantity) as total_quantity_sold,
@@ -594,7 +594,7 @@ class AnalyticsController extends Controller
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
                 ->where('o.status', 'completed')
-                ->where($dateFilter['column'], $dateFilter['operator'], $dateFilter['value'])
+                ->whereBetween('o.created_at', [$dateFilter['startDate'], $dateFilter['endDate']])
                 ->selectRaw('
                     p.product_name,
                     SUM(oi.quantity) as total_quantity_sold,
@@ -637,6 +637,8 @@ class AnalyticsController extends Controller
 
     /**
      * Build date filter based on period
+     * Returns proper whereBetween conditions for each time period
+     * Uses current time as end date to include all data up to now
      */
     private function buildDateFilter($period)
     {
@@ -644,49 +646,70 @@ class AnalyticsController extends Controller
         
         switch ($period) {
             case 'daily':
-                return [
-                    'column' => DB::raw('DATE(o.created_at)'),
-                    'operator' => '=',
-                    'value' => $now->format('Y-m-d')
-                ];
+                // Today: Orders from start of today to current time
+                $startDate = $now->copy()->startOfDay();
+                $endDate = $now; // Use current time instead of end of day
+                break;
                 
             case 'weekly':
-                $startOfWeek = $now->startOfWeek();
-                $endOfWeek = $now->endOfWeek();
-                return [
-                    'column' => 'o.created_at',
-                    'operator' => 'BETWEEN',
-                    'value' => [$startOfWeek, $endOfWeek]
-                ];
+                // This Week: Orders from start of this week (Monday) to current time
+                $startDate = $now->copy()->startOfWeek();
+                $endDate = $now; // Use current time instead of end of week
+                break;
                 
             case 'monthly':
-                $startOfMonth = $now->startOfMonth();
-                $endOfMonth = $now->endOfMonth();
-                return [
-                    'column' => 'o.created_at',
-                    'operator' => 'BETWEEN',
-                    'value' => [$startOfMonth, $endOfMonth]
-                ];
+                // This Month: Orders from first day of current month to current time
+                $startDate = $now->copy()->startOfMonth();
+                $endDate = $now; // Use current time instead of end of month
+                break;
                 
             case 'yearly':
-                $startOfYear = $now->startOfYear();
-                $endOfYear = $now->endOfYear();
-                return [
-                    'column' => 'o.created_at',
-                    'operator' => 'BETWEEN',
-                    'value' => [$startOfYear, $endOfYear]
-                ];
+                // This Year: Orders from first day of current year to current time
+                $startDate = $now->copy()->startOfYear();
+                $endDate = $now; // Use current time instead of end of year
+                break;
                 
             default:
-                // Default to monthly
-                $startOfMonth = $now->startOfMonth();
-                $endOfMonth = $now->endOfMonth();
-                return [
-                    'column' => 'o.created_at',
-                    'operator' => 'BETWEEN',
-                    'value' => [$startOfMonth, $endOfMonth]
-                ];
+                // Default to monthly if period is not recognized
+                $startDate = $now->copy()->startOfMonth();
+                $endDate = $now;
+                break;
         }
+        
+        return [
+            'startDate' => $startDate,
+            'endDate' => $endDate
+        ];
+    }
+
+    /**
+     * Debug date ranges for troubleshooting
+     */
+    public function debugDateRanges(Request $request)
+    {
+        $period = $request->input('period', 'monthly');
+        $dateFilter = $this->buildDateFilter($period);
+        
+        // Get some sample order data to see what dates exist
+        $sampleOrders = DB::table('orders')
+            ->where('status', 'completed')
+            ->select('id', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'period' => $period,
+            'date_filter' => [
+                'start_date' => $dateFilter['startDate']->toDateTimeString(),
+                'end_date' => $dateFilter['endDate']->toDateTimeString(),
+                'start_timestamp' => $dateFilter['startDate']->timestamp,
+                'end_timestamp' => $dateFilter['endDate']->timestamp,
+            ],
+            'sample_orders' => $sampleOrders,
+            'current_time' => now()->toDateTimeString(),
+            'current_timestamp' => now()->timestamp,
+        ]);
     }
 
     /**

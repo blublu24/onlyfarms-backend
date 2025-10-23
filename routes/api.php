@@ -572,6 +572,7 @@ Route::get('/analytics/weekly-product-sales', [AnalyticsController::class, 'week
 Route::get('/analytics/monthly-product-sales', [AnalyticsController::class, 'monthlyProductSales']);
 Route::get('/analytics/yearly-product-sales', [AnalyticsController::class, 'yearlyProductSales']);
 Route::get('/analytics/debug-database', [AnalyticsController::class, 'debugDatabase']);
+Route::get('/analytics/debug-date-ranges', [AnalyticsController::class, 'debugDateRanges']);
 Route::get('/analytics/top-products-by-sales', [AnalyticsController::class, 'topProductsBySales']);
 Route::get('/analytics/top-products-by-quantity', [AnalyticsController::class, 'topProductsByQuantity']);
 
