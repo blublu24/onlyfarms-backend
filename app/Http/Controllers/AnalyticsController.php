@@ -517,4 +517,244 @@ class AnalyticsController extends Controller
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Get Top 5 and Top 10 Products by Total Sales
+     * Supports time filtering: daily, weekly, monthly, yearly
+     */
+    public function topProductsBySales(Request $request)
+    {
+        try {
+            $period = $request->input('period', 'monthly'); // Default to monthly
+            $dateFilter = $this->getDateFilter($period);
+            
+            // Base query for product sales data
+            $query = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->where($dateFilter['column'], $dateFilter['operator'], $dateFilter['value'])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->orderByDesc('total_sales_amount');
+
+            // Get all results first
+            $allProducts = $query->get();
+            
+            // Extract top 5 and top 10
+            $top5 = $allProducts->take(5)->map(function ($product) {
+                return [
+                    'product_id' => $product->product_id,
+                    'product_name' => $product->product_name,
+                    'image_url' => $product->image_url,
+                    'shop_name' => $product->shop_name,
+                    'total_quantity_sold' => (int) $product->total_quantity_sold,
+                    'total_sales_amount' => round((float) $product->total_sales_amount, 2),
+                    'total_orders' => (int) $product->total_orders
+                ];
+            });
+
+            $top10 = $allProducts->take(10)->map(function ($product) {
+                return [
+                    'product_id' => $product->product_id,
+                    'product_name' => $product->product_name,
+                    'image_url' => $product->image_url,
+                    'shop_name' => $product->shop_name,
+                    'total_quantity_sold' => (int) $product->total_quantity_sold,
+                    'total_sales_amount' => round((float) $product->total_sales_amount, 2),
+                    'total_orders' => (int) $product->total_orders
+                ];
+            });
+
+            return response()->json([
+                'period' => $period,
+                'date_range' => $dateFilter['description'],
+                'top5' => $top5,
+                'top10' => $top10,
+                'total_products_found' => $allProducts->count()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch top products',
+                'debug' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Top 5 Products by Total Sales (simplified endpoint)
+     */
+    public function top5Products(Request $request)
+    {
+        try {
+            $period = $request->input('period', 'monthly');
+            $dateFilter = $this->getDateFilter($period);
+            
+            $top5 = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->where($dateFilter['column'], $dateFilter['operator'], $dateFilter['value'])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->orderByDesc('total_sales_amount')
+                ->limit(5)
+                ->get()
+                ->map(function ($product) {
+                    return [
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'image_url' => $product->image_url,
+                        'shop_name' => $product->shop_name,
+                        'total_quantity_sold' => (int) $product->total_quantity_sold,
+                        'total_sales_amount' => round((float) $product->total_sales_amount, 2),
+                        'total_orders' => (int) $product->total_orders
+                    ];
+                });
+
+            return response()->json([
+                'period' => $period,
+                'date_range' => $dateFilter['description'],
+                'top5' => $top5
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch top 5 products',
+                'debug' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Top 10 Products by Total Sales (simplified endpoint)
+     */
+    public function top10Products(Request $request)
+    {
+        try {
+            $period = $request->input('period', 'monthly');
+            $dateFilter = $this->getDateFilter($period);
+            
+            $top10 = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->where($dateFilter['column'], $dateFilter['operator'], $dateFilter['value'])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->orderByDesc('total_sales_amount')
+                ->limit(10)
+                ->get()
+                ->map(function ($product) {
+                    return [
+                        'product_id' => $product->product_id,
+                        'product_name' => $product->product_name,
+                        'image_url' => $product->image_url,
+                        'shop_name' => $product->shop_name,
+                        'total_quantity_sold' => (int) $product->total_quantity_sold,
+                        'total_sales_amount' => round((float) $product->total_sales_amount, 2),
+                        'total_orders' => (int) $product->total_orders
+                    ];
+                });
+
+            return response()->json([
+                'period' => $period,
+                'date_range' => $dateFilter['description'],
+                'top10' => $top10
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch top 10 products',
+                'debug' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper method to get date filter based on period
+     */
+    private function getDateFilter($period)
+    {
+        $now = now();
+        
+        switch ($period) {
+            case 'daily':
+                return [
+                    'column' => DB::raw('DATE(oi.created_at)'),
+                    'operator' => '=',
+                    'value' => $now->format('Y-m-d'),
+                    'description' => 'Today (' . $now->format('M d, Y') . ')'
+                ];
+                
+            case 'weekly':
+                $startOfWeek = $now->startOfWeek();
+                $endOfWeek = $now->endOfWeek();
+                return [
+                    'column' => 'oi.created_at',
+                    'operator' => 'BETWEEN',
+                    'value' => [$startOfWeek, $endOfWeek],
+                    'description' => 'This Week (' . $startOfWeek->format('M d') . ' - ' . $endOfWeek->format('M d, Y') . ')'
+                ];
+                
+            case 'monthly':
+                $startOfMonth = $now->startOfMonth();
+                $endOfMonth = $now->endOfMonth();
+                return [
+                    'column' => 'oi.created_at',
+                    'operator' => 'BETWEEN',
+                    'value' => [$startOfMonth, $endOfMonth],
+                    'description' => 'This Month (' . $startOfMonth->format('M Y') . ')'
+                ];
+                
+            case 'yearly':
+                $startOfYear = $now->startOfYear();
+                $endOfYear = $now->endOfYear();
+                return [
+                    'column' => 'oi.created_at',
+                    'operator' => 'BETWEEN',
+                    'value' => [$startOfYear, $endOfYear],
+                    'description' => 'This Year (' . $startOfYear->format('Y') . ')'
+                ];
+                
+            default:
+                // Default to monthly
+                $startOfMonth = $now->startOfMonth();
+                $endOfMonth = $now->endOfMonth();
+                return [
+                    'column' => 'oi.created_at',
+                    'operator' => 'BETWEEN',
+                    'value' => [$startOfMonth, $endOfMonth],
+                    'description' => 'This Month (' . $startOfMonth->format('M Y') . ')'
+                ];
+        }
+    }
 }
