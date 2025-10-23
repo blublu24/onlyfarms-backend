@@ -153,33 +153,41 @@ class AnalyticsController extends Controller
     // 🏆 Top Seller
     public function topSeller()
     {
-        $data = DB::table('order_items as oi')
-            ->join('orders as o', 'oi.order_id', '=', 'o.id')
-            ->join('sellers as s', 'oi.seller_id', '=', 's.user_id')
-            ->join('users as u', 's.user_id', '=', 'u.id')
-            ->where('o.status', 'completed')
-            ->selectRaw('s.shop_name, u.name, u.avatar as profile_image, SUM(oi.price * oi.quantity) as revenue, COUNT(DISTINCT o.id) as orders')
-            ->groupBy('s.id', 's.shop_name', 'u.name', 'u.avatar')
-            ->orderByDesc('revenue')
-            ->first();
+        try {
+            $data = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('sellers as s', 'oi.seller_id', '=', 's.id')
+                ->join('users as u', 's.user_id', '=', 'u.id')
+                ->where('o.status', 'completed')
+                ->selectRaw('s.shop_name, u.name, u.avatar as profile_image, SUM(oi.price * oi.quantity) as revenue, COUNT(DISTINCT o.id) as orders')
+                ->groupBy('s.id', 's.shop_name', 'u.name', 'u.avatar')
+                ->orderByDesc('revenue')
+                ->first();
 
-        return response()->json($data);
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No top seller data available'], 200);
+        }
     }
 
     // ⭐ Top Rated Product
     public function topRatedProduct()
     {
-        $data = DB::table('products as p')
-            ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
-            ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
-                        AVG(r.rating) as average_rating, COUNT(r.id) as total_reviews')
-            ->groupBy('p.product_id', 'p.product_name', 'p.price_kg', 'p.price_bunches', 'p.image_url', 'p.full_image_url')
-            ->having('total_reviews', '>', 0)
-            ->orderByDesc('average_rating')
-            ->orderByDesc('total_reviews')
-            ->first();
+        try {
+            $data = DB::table('products as p')
+                ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
+                ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
+                            AVG(r.rating) as average_rating, COUNT(r.id) as total_reviews')
+                ->groupBy('p.product_id', 'p.product_name', 'p.price_kg', 'p.price_bunches', 'p.image_url', 'p.full_image_url')
+                ->having('total_reviews', '>', 0)
+                ->orderByDesc('average_rating')
+                ->orderByDesc('total_reviews')
+                ->first();
 
-        return response()->json($data);
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No rated products available'], 200);
+        }
     }
 
     // 📊 Top Yearly Sales (last 12 months)
@@ -218,18 +226,22 @@ class AnalyticsController extends Controller
     // ⭐ Most Rated Products (top 10)
     public function mostRatedProducts()
     {
-        $data = DB::table('products as p')
-            ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
-            ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url,
-                        AVG(r.rating) as average_rating, 
-                        COUNT(r.id) as total_reviews')
-            ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url')
-            ->having('total_reviews', '>', 0)
-            ->orderByDesc('average_rating')
-            ->orderByDesc('total_reviews')
-            ->limit(10)
-            ->get();
+        try {
+            $data = DB::table('products as p')
+                ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
+                ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url,
+                            AVG(r.rating) as average_rating, 
+                            COUNT(r.id) as total_reviews')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url')
+                ->having('total_reviews', '>', 0)
+                ->orderByDesc('average_rating')
+                ->orderByDesc('total_reviews')
+                ->limit(10)
+                ->get();
 
-        return response()->json($data);
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No rated products available'], 200);
+        }
     }
 }
