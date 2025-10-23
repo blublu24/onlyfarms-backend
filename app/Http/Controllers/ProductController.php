@@ -98,14 +98,8 @@ class ProductController extends Controller
         }
 
         $products = $products->map(function ($p) {
-            // ✅ Get the image URL from the model (which handles storage/ prefix)
-            $imageUrl = $p->image_url;
-            
-            // Construct full URL for frontend
-            if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
-                $baseUrl = request()->getSchemeAndHttpHost();
-                $imageUrl = $baseUrl . '/' . $imageUrl;
-            }
+            // ✅ Get the full image URL using the model method
+            $imageUrl = $p->full_image_url;
             
             // Get vegetable slug and available units
             $vegetableSlug = $p->getVegetableSlug();
@@ -147,16 +141,7 @@ class ProductController extends Controller
         $product = Product::with('user')->findOrFail($id);
         
         
-        $imageUrl = $product->image_url; // ✅ Use model accessor
-        
-        // Construct full URL for frontend
-        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
-            $baseUrl = request()->getSchemeAndHttpHost();
-            $imageUrl = $baseUrl . '/' . $imageUrl;
-        }
-        
-        $product->full_image_url = $imageUrl;
-        $product->fixed_image_url = $imageUrl;
+        $imageUrl = $product->full_image_url; // ✅ Use model method for full URL
         
         // Get vegetable slug for reference
         $vegetableSlug = $product->getVegetableSlug();
@@ -251,16 +236,7 @@ class ProductController extends Controller
         $validated['available_units'] = $availableUnits;
 
         $product = Product::create($validated);
-        $imageUrl = $product->image_url; // ✅ Use model accessor
-        
-        // Construct full URL for frontend
-        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
-            $baseUrl = request()->getSchemeAndHttpHost();
-            $imageUrl = $baseUrl . '/' . $imageUrl;
-        }
-        
-        $product->full_image_url = $imageUrl;
-        $product->fixed_image_url = $imageUrl;
+        $imageUrl = $product->full_image_url; // ✅ Use model method for full URL
 
         return response()->json([
             'message' => 'Product created successfully',

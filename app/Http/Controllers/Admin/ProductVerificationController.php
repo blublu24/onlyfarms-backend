@@ -25,13 +25,7 @@ class ProductVerificationController extends Controller
         }
 
         $products = $query->orderBy('created_at', 'desc')->get()->map(function ($product) {
-            $imageUrl = $product->image_url; // This will use the model accessor
-            
-            // Construct full URL for frontend
-            if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
-                $baseUrl = request()->getSchemeAndHttpHost();
-                $imageUrl = $baseUrl . '/' . $imageUrl;
-            }
+            $imageUrl = $product->full_image_url; // ✅ Use model method for full URL
             
             return [
                 'product_id' => $product->product_id,
@@ -58,13 +52,7 @@ class ProductVerificationController extends Controller
     public function show(Request $request, Product $product)
     {
         $productData = $product->load(['user']);
-        $imageUrl = $productData->image_url; // This will use the model accessor
-        
-        // Construct full URL for frontend
-        if ($imageUrl && !str_starts_with($imageUrl, 'http')) {
-            $baseUrl = request()->getSchemeAndHttpHost();
-            $imageUrl = $baseUrl . '/' . $imageUrl;
-        }
+        $imageUrl = $productData->full_image_url; // ✅ Use model method for full URL
         
         return response()->json([
             'product_id' => $productData->product_id,

@@ -534,6 +534,35 @@ class Product extends Model
     }
 
     /**
+     * Get the full URL for the product image
+     */
+    public function getFullImageUrlAttribute()
+    {
+        $imageUrl = $this->image_url;
+        
+        if (!$imageUrl) {
+            return null;
+        }
+        
+        // Already a full URL - return as is
+        if (str_starts_with($imageUrl, 'http')) {
+            return $imageUrl;
+        }
+        
+        // Construct full URL based on environment
+        $baseUrl = request()->getSchemeAndHttpHost();
+        
+        // For local development, use the actual request URL
+        if (str_contains($baseUrl, 'localhost') || str_contains($baseUrl, '127.0.0.1') || str_contains($baseUrl, 'xampp')) {
+            return $baseUrl . '/' . $imageUrl;
+        } else {
+            // For production, use the configured APP_URL
+            $appUrl = config('app.url');
+            return $appUrl . '/' . $imageUrl;
+        }
+    }
+
+    /**
      * Get all variations with their stock info including reserved quantities
      */
     public function getVariationsWithReservedQuantities(): array
