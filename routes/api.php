@@ -302,6 +302,35 @@ Route::get('/test-image/{filename}', function ($filename) {
     ]);
 });
 
+// Debug: Create storage link manually
+Route::post('/debug/create-storage-link', function () {
+    try {
+        // Remove existing link if it exists
+        $publicStoragePath = public_path('storage');
+        if (is_link($publicStoragePath)) {
+            unlink($publicStoragePath);
+        }
+        
+        // Create the storage link
+        $storagePath = storage_path('app/public');
+        $result = symlink($storagePath, $publicStoragePath);
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Storage link created successfully',
+            'storage_path' => $storagePath,
+            'public_path' => $publicStoragePath,
+            'link_created' => $result,
+            'link_exists' => is_link($publicStoragePath),
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+});
+
 // ==================== END DEBUG ENDPOINTS ====================
 
 use App\Http\Controllers\AuthController;
