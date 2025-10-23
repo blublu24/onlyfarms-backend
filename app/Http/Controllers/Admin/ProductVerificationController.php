@@ -95,7 +95,7 @@ class ProductVerificationController extends Controller
             'price_per_kg' => $productData->price_per_kg,
             'stock_kg' => $productData->stock_kg,
             'available_units' => $productData->available_units,
-            'image_url' => $productData->image_url, // This will use the model accessor
+            'image_url' => $productData->full_image_url, // Use the model accessor for proper URL
             'status' => $productData->status,
             'created_at' => $productData->created_at,
             'approved_at' => $productData->approved_at,
@@ -129,7 +129,7 @@ class ProductVerificationController extends Controller
             'price_per_kg' => $productData->price_per_kg,
             'stock_kg' => $productData->stock_kg,
             'available_units' => $productData->available_units,
-            'image_url' => $productData->image_url, // This will use the model accessor
+            'image_url' => $productData->full_image_url, // Use the model accessor for proper URL
             'status' => $productData->status,
             'created_at' => $productData->created_at,
             'approved_at' => $productData->approved_at,
