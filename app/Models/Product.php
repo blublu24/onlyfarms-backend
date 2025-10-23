@@ -549,17 +549,11 @@ class Product extends Model
             return $imageUrl;
         }
         
-        // Construct full URL based on environment
-        $baseUrl = request()->getSchemeAndHttpHost();
+        // Construct full URL using storage URL
+        $baseUrl = config('app.url');
         
-        // For local development, use the actual request URL
-        if (str_contains($baseUrl, 'localhost') || str_contains($baseUrl, '127.0.0.1') || str_contains($baseUrl, 'xampp')) {
-            return $baseUrl . '/' . $imageUrl;
-        } else {
-            // For production, use the configured APP_URL
-            $appUrl = config('app.url');
-            return $appUrl . '/' . $imageUrl;
-        }
+        // Images are stored in storage/app/public and should be accessed via /storage/
+        return $baseUrl . '/storage/' . $imageUrl;
     }
 
     /**
