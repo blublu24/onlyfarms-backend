@@ -571,6 +571,7 @@ Route::get('/analytics/daily-product-sales', [AnalyticsController::class, 'daily
 Route::get('/analytics/weekly-product-sales', [AnalyticsController::class, 'weeklyProductSales']);
 Route::get('/analytics/monthly-product-sales', [AnalyticsController::class, 'monthlyProductSales']);
 Route::get('/analytics/yearly-product-sales', [AnalyticsController::class, 'yearlyProductSales']);
+Route::get('/analytics/debug-database', [AnalyticsController::class, 'debugDatabase']);
 
 // PayMongo Webhook (public, no auth)
 Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
