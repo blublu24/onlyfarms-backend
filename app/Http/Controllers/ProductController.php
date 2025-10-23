@@ -262,6 +262,16 @@ class ProductController extends Controller
         $user = Auth::user();
         $product = Product::findOrFail($id);
 
+        // Debug logging for product update
+        \Log::info('Product Update Request', [
+            'product_id' => $id,
+            'method' => 'PUT',
+            'user_id' => $user->id,
+            'seller_id' => $product->seller_id,
+            'product_name' => $product->product_name,
+            'request_data' => $request->except(['images'])
+        ]);
+
         if ($product->seller_id !== $user->id) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
@@ -319,6 +329,17 @@ class ProductController extends Controller
         }
 
         $product->update($validated);
+        
+        // Debug logging to confirm UPDATE operation
+        \Log::info('Product Update Completed', [
+            'product_id' => $product->id,
+            'operation' => 'UPDATE',
+            'updated_fields' => array_keys($validated),
+            'new_product_name' => $product->product_name,
+            'new_stock_kg' => $product->stock_kg,
+            'new_price_per_kg' => $product->price_per_kg
+        ]);
+        
         $imageUrl = $product->image_url; // ✅ Use model accessor
         
         // Construct full URL for frontend
