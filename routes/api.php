@@ -573,8 +573,7 @@ Route::get('/analytics/monthly-product-sales', [AnalyticsController::class, 'mon
 Route::get('/analytics/yearly-product-sales', [AnalyticsController::class, 'yearlyProductSales']);
 Route::get('/analytics/debug-database', [AnalyticsController::class, 'debugDatabase']);
 Route::get('/analytics/top-products-by-sales', [AnalyticsController::class, 'topProductsBySales']);
-Route::get('/analytics/top-5-products', [AnalyticsController::class, 'top5Products']);
-Route::get('/analytics/top-10-products', [AnalyticsController::class, 'top10Products']);
+Route::get('/analytics/top-products-by-quantity', [AnalyticsController::class, 'topProductsByQuantity']);
 
 // PayMongo Webhook (public, no auth)
 Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
