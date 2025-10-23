@@ -176,9 +176,10 @@ class AnalyticsController extends Controller
         try {
             $data = DB::table('products as p')
                 ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
-                            AVG(r.rating) as average_rating, COUNT(r.id) as total_reviews')
-                ->groupBy('p.product_id', 'p.product_name', 'p.price_kg', 'p.price_bunches', 'p.image_url', 'p.full_image_url')
+                            s.shop_name, AVG(r.rating) as average_rating, COUNT(r.id) as total_reviews')
+                ->groupBy('p.product_id', 'p.product_name', 'p.price_kg', 'p.price_bunches', 'p.image_url', 'p.full_image_url', 's.shop_name')
                 ->having('total_reviews', '>', 0)
                 ->orderByDesc('average_rating')
                 ->orderByDesc('total_reviews')
@@ -208,19 +209,24 @@ class AnalyticsController extends Controller
     // 🏆 Most Bought Products (top 10)
     public function mostBoughtProducts()
     {
-        $data = DB::table('order_items as oi')
-            ->join('products as p', 'oi.product_id', '=', 'p.product_id')
-            ->join('orders as o', 'oi.order_id', '=', 'o.id')
-            ->where('o.status', 'completed')
-            ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url, 
-                        SUM(oi.quantity) as total_quantity_sold,
-                        COUNT(DISTINCT o.id) as total_orders')
-            ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url')
-            ->orderByDesc('total_quantity_sold')
-            ->limit(10)
-            ->get();
+        try {
+            $data = DB::table('order_items as oi')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url, 
+                            s.shop_name, SUM(oi.quantity) as total_quantity_sold,
+                            COUNT(DISTINCT o.id) as total_orders')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->limit(10)
+                ->get();
 
-        return response()->json($data);
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No bought products available'], 200);
+        }
     }
 
     // ⭐ Most Rated Products (top 10)
@@ -229,10 +235,11 @@ class AnalyticsController extends Controller
         try {
             $data = DB::table('products as p')
                 ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
                 ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url,
-                            AVG(r.rating) as average_rating, 
+                            s.shop_name, AVG(r.rating) as average_rating, 
                             COUNT(r.id) as total_reviews')
-                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url', 's.shop_name')
                 ->having('total_reviews', '>', 0)
                 ->orderByDesc('average_rating')
                 ->orderByDesc('total_reviews')
