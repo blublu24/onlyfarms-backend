@@ -319,9 +319,21 @@ Route::post('/debug/create-storage-link', function () {
             ]);
         }
         
-        // If it's a directory, remove it first
+        // If it's a directory, remove it recursively first
         if (is_dir($publicStoragePath)) {
-            rmdir($publicStoragePath);
+            // Use shell command to remove directory recursively
+            $command = "rm -rf " . escapeshellarg($publicStoragePath);
+            exec($command, $output, $returnCode);
+            
+            if ($returnCode !== 0) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Failed to remove existing directory',
+                    'command' => $command,
+                    'output' => $output,
+                    'return_code' => $returnCode,
+                ], 500);
+            }
         }
         
         // Create the storage link
