@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 
 // Health check endpoint for Railway
 Route::get('/health', function () {
@@ -319,22 +320,26 @@ Route::get('/test-image-route', function () {
     return response()->json(['message' => 'Image route is working']);
 });
 
-// Serve images directly from storage (Railway workaround)
+// Serve images using Laravel Storage facade (Railway workaround)
 Route::get('/images/{path}', function ($path) {
-    $storagePath = storage_path('app/public/' . $path);
-    
-    if (!file_exists($storagePath)) {
-        return response()->json(['error' => 'Image not found', 'path' => $storagePath], 404);
+    try {
+        $filePath = 'public/' . $path;
+        
+        if (!Storage::exists($filePath)) {
+            return response()->json(['error' => 'Image not found', 'path' => $filePath], 404);
+        }
+        
+        $file = Storage::get($filePath);
+        $mimeType = Storage::mimeType($filePath);
+        
+        return response($file, 200, [
+            'Content-Type' => $mimeType,
+            'Content-Length' => strlen($file),
+            'Cache-Control' => 'public, max-age=31536000', // Cache for 1 year
+        ]);
+    } catch (Exception $e) {
+        return response()->json(['error' => 'Failed to serve image', 'message' => $e->getMessage()], 500);
     }
-    
-    $mimeType = mime_content_type($storagePath);
-    $fileContents = file_get_contents($storagePath);
-    
-    return response($fileContents, 200, [
-        'Content-Type' => $mimeType,
-        'Content-Length' => strlen($fileContents),
-        'Cache-Control' => 'public, max-age=31536000', // Cache for 1 year
-    ]);
 })->where('path', '.*');
 
 // Helper function to copy directory recursively
