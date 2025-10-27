@@ -314,7 +314,7 @@ Route::get('/test-image/{filename}', function ($filename) {
     ]);
 });
 
-// Fix storage symlink route
+// Fix storage by copying files (Railway doesn't support symlinks)
 Route::get('/fix-storage', function () {
     $storagePath = storage_path('app/public');
     $publicPath = public_path('storage');
@@ -330,32 +330,58 @@ Route::get('/fix-storage', function () {
     $result['storage_path'] = $storagePath;
     $result['public_path'] = $publicPath;
     
-    // Remove existing symlink if it exists
-    if (is_link($publicPath)) {
-        unlink($publicPath);
-        $result['removed_existing_symlink'] = true;
-    } elseif (is_dir($publicPath)) {
-        rmdir($publicPath);
+    // Remove existing directory if it exists
+    if (is_dir($publicPath)) {
+        deleteDirectory($publicPath);
         $result['removed_existing_directory'] = true;
     }
     
-    // Create the symlink
-    if (symlink($storagePath, $publicPath)) {
-        $result['symlink_created'] = true;
-    } else {
-        return response()->json(['error' => 'Failed to create storage symlink'], 500);
+    // Create public/storage directory
+    if (!mkdir($publicPath, 0755, true)) {
+        return response()->json(['error' => 'Failed to create public/storage directory'], 500);
     }
     
-    // Verify the symlink works
-    if (is_link($publicPath) && is_dir($publicPath)) {
-        $result['symlink_verified'] = true;
-        $result['files_in_storage'] = array_slice(scandir($publicPath), 2, 10);
+    // Copy files from storage to public
+    copyDirectory($storagePath, $publicPath);
+    $result['files_copied'] = true;
+    
+    // Verify the copy worked
+    if (is_dir($publicPath)) {
+        $result['copy_verified'] = true;
+        $result['files_in_public_storage'] = array_slice(scandir($publicPath), 2, 10);
     } else {
-        return response()->json(['error' => 'Storage symlink verification failed'], 500);
+        return response()->json(['error' => 'Storage copy verification failed'], 500);
     }
     
     return response()->json($result);
 });
+
+// Helper function to copy directory recursively
+function copyDirectory($src, $dst) {
+    $dir = opendir($src);
+    @mkdir($dst);
+    while (($file = readdir($dir)) !== false) {
+        if ($file != '.' && $file != '..') {
+            if (is_dir($src . '/' . $file)) {
+                copyDirectory($src . '/' . $file, $dst . '/' . $file);
+            } else {
+                copy($src . '/' . $file, $dst . '/' . $file);
+            }
+        }
+    }
+    closedir($dir);
+}
+
+// Helper function to delete directory recursively
+function deleteDirectory($dir) {
+    if (!is_dir($dir)) return;
+    $files = array_diff(scandir($dir), array('.', '..'));
+    foreach ($files as $file) {
+        $path = $dir . '/' . $file;
+        is_dir($path) ? deleteDirectory($path) : unlink($path);
+    }
+    rmdir($dir);
+}
 
 // Debug: Create storage link manually
 Route::post('/debug/create-storage-link', function () {
