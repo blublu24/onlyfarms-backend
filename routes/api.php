@@ -315,32 +315,27 @@ Route::get('/test-image/{filename}', function ($filename) {
     ]);
 });
 
-// Test route
-Route::get('/test-image-route', function () {
-    return response()->json(['message' => 'Image route is working']);
-});
-
-// Serve images using Laravel Storage facade (Railway workaround)
-Route::get('/images/{path}', function ($path) {
+// Simple image serving route for Railway
+Route::get('/image/{filename}', function ($filename) {
     try {
-        $filePath = 'public/' . $path;
+        $filePath = storage_path('app/public/products/' . $filename);
         
-        if (!Storage::exists($filePath)) {
-            return response()->json(['error' => 'Image not found', 'path' => $filePath], 404);
+        if (!file_exists($filePath)) {
+            return response()->json(['error' => 'Image not found'], 404);
         }
         
-        $file = Storage::get($filePath);
-        $mimeType = Storage::mimeType($filePath);
+        $mimeType = mime_content_type($filePath);
+        $fileContents = file_get_contents($filePath);
         
-        return response($file, 200, [
+        return response($fileContents, 200, [
             'Content-Type' => $mimeType,
-            'Content-Length' => strlen($file),
-            'Cache-Control' => 'public, max-age=31536000', // Cache for 1 year
+            'Content-Length' => strlen($fileContents),
+            'Cache-Control' => 'public, max-age=31536000',
         ]);
     } catch (Exception $e) {
-        return response()->json(['error' => 'Failed to serve image', 'message' => $e->getMessage()], 500);
+        return response()->json(['error' => 'Failed to serve image'], 500);
     }
-})->where('path', '.*');
+});
 
 // Helper function to copy directory recursively
 function copyDirectory($src, $dst) {

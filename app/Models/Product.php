@@ -549,11 +549,14 @@ class Product extends Model
             return $imageUrl;
         }
         
-        // Construct full URL using our image serving route
+        // Extract filename from path (e.g., "products/filename.jpg" -> "filename.jpg")
+        $filename = basename($imageUrl);
+        
+        // Construct full URL using our simple image serving route
         $baseUrl = config('app.url');
         
-        // Use the /api/images/ route to serve images directly from storage
-        return $baseUrl . '/api/images/' . $imageUrl;
+        // Use the /api/image/ route to serve images directly from storage
+        return $baseUrl . '/api/image/' . $filename;
     }
 
     /**
