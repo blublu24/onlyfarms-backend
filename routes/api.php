@@ -315,13 +315,18 @@ Route::get('/test-image/{filename}', function ($filename) {
     ]);
 });
 
+// Test route to verify deployment
+Route::get('/test-deployment', function () {
+    return response()->json(['message' => 'New deployment is working', 'timestamp' => now()]);
+});
+
 // Simple image serving route for Railway
 Route::get('/image/{filename}', function ($filename) {
     try {
         $filePath = storage_path('app/public/products/' . $filename);
         
         if (!file_exists($filePath)) {
-            return response()->json(['error' => 'Image not found'], 404);
+            return response()->json(['error' => 'Image not found', 'path' => $filePath], 404);
         }
         
         $mimeType = mime_content_type($filePath);
@@ -333,7 +338,7 @@ Route::get('/image/{filename}', function ($filename) {
             'Cache-Control' => 'public, max-age=31536000',
         ]);
     } catch (Exception $e) {
-        return response()->json(['error' => 'Failed to serve image'], 500);
+        return response()->json(['error' => 'Failed to serve image', 'message' => $e->getMessage()], 500);
     }
 });
 
