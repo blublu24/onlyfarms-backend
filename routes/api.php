@@ -555,6 +555,27 @@ Route::get('/products/{productId}/reviews', [ReviewController::class, 'index']);
 Route::get('/unit-conversions/{vegetableSlug}', [UnitConversionController::class, 'getAvailableUnits']);
 Route::get('/unit-conversions', [UnitConversionController::class, 'index']);
 
+// Analytics (public - no authentication required)
+Route::get('/analytics/monthly-sales', [AnalyticsController::class, 'monthlySales']);
+Route::get('/analytics/top-products', [AnalyticsController::class, 'topProducts']);
+Route::get('/analytics/seasonal-trends', [AnalyticsController::class, 'seasonalTrends']);
+Route::get('/analytics/daily-sales', [AnalyticsController::class, 'dailySales']);
+Route::get('/analytics/weekly-sales', [AnalyticsController::class, 'weeklySales']);
+Route::get('/analytics/monthly-sales-detailed', [AnalyticsController::class, 'monthlySalesDetailed']);
+Route::get('/analytics/top-seller', [AnalyticsController::class, 'topSeller']);
+Route::get('/analytics/top-rated-product', [AnalyticsController::class, 'topRatedProduct']);
+Route::get('/analytics/yearly-sales', [AnalyticsController::class, 'yearlySales']);
+Route::get('/analytics/most-bought-products', [AnalyticsController::class, 'mostBoughtProducts']);
+Route::get('/analytics/most-rated-products', [AnalyticsController::class, 'mostRatedProducts']);
+Route::get('/analytics/daily-product-sales', [AnalyticsController::class, 'dailyProductSales']);
+Route::get('/analytics/weekly-product-sales', [AnalyticsController::class, 'weeklyProductSales']);
+Route::get('/analytics/monthly-product-sales', [AnalyticsController::class, 'monthlyProductSales']);
+Route::get('/analytics/yearly-product-sales', [AnalyticsController::class, 'yearlyProductSales']);
+Route::get('/analytics/debug-database', [AnalyticsController::class, 'debugDatabase']);
+Route::get('/analytics/debug-date-ranges', [AnalyticsController::class, 'debugDateRanges']);
+Route::get('/analytics/top-products-by-sales', [AnalyticsController::class, 'topProductsBySales']);
+Route::get('/analytics/top-products-by-quantity', [AnalyticsController::class, 'topProductsByQuantity']);
+
 // PayMongo Webhook (public, no auth)
 Route::post('/webhook/paymongo', [OrderController::class, 'handleWebhook'])
     ->withoutMiddleware(['auth:sanctum']);
@@ -697,17 +718,7 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::get('/dashboard/top-purchased', [DashboardController::class, 'topPurchased']);
 
-    // Analytics
-    Route::get('/analytics/monthly-sales', [AnalyticsController::class, 'monthlySales']);
-    Route::get('/analytics/top-products', [AnalyticsController::class, 'topProducts']);
-    Route::get('/analytics/seasonal-trends', [AnalyticsController::class, 'seasonalTrends']);
-    
-    // 🆕 NEW: Enhanced Analytics Endpoints
-    Route::get('/analytics/daily-sales', [AnalyticsController::class, 'dailySales']);
-    Route::get('/analytics/weekly-sales', [AnalyticsController::class, 'weeklySales']);
-    Route::get('/analytics/monthly-sales-detailed', [AnalyticsController::class, 'monthlySalesDetailed']);
-    Route::get('/analytics/top-seller', [AnalyticsController::class, 'topSeller']);
-    Route::get('/analytics/top-rated-product', [AnalyticsController::class, 'topRatedProduct']);
+    // Analytics (moved to public routes - no auth required)
 
     // Reviews
     Route::post('/products/{productId}/order-items/{orderItemId}/reviews', [ReviewController::class, 'store']);

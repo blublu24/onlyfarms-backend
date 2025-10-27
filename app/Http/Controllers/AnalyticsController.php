@@ -153,32 +153,587 @@ class AnalyticsController extends Controller
     // 🏆 Top Seller
     public function topSeller()
     {
-        $data = DB::table('order_items as oi')
-            ->join('orders as o', 'oi.order_id', '=', 'o.id')
-            ->join('sellers as s', 'oi.seller_id', '=', 's.user_id')
-            ->join('users as u', 's.user_id', '=', 'u.id')
-            ->where('o.status', 'completed')
-            ->selectRaw('s.shop_name, u.name, u.avatar as profile_image, SUM(oi.price * oi.quantity) as revenue, COUNT(DISTINCT o.id) as orders')
-            ->groupBy('s.id', 's.shop_name', 'u.name', 'u.avatar')
-            ->orderByDesc('revenue')
-            ->first();
+        try {
+            $topSeller = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->join('users as u', 's.user_id', '=', 'u.id')
+                ->where('o.status', 'completed')
+                ->selectRaw('
+                    u.id as user_id,
+                    u.name as seller_name,
+                    u.profile_image,
+                    s.shop_name,
+                    COUNT(DISTINCT o.id) as total_orders,
+                    SUM(oi.quantity) as total_products_sold,
+                    SUM(oi.price * oi.quantity) as total_revenue
+                ')
+                ->groupBy('u.id', 'u.name', 'u.profile_image', 's.shop_name')
+                ->orderByDesc('total_orders')
+                ->orderByDesc('total_revenue')
+                ->first();
 
-        return response()->json($data);
+            if ($topSeller) {
+                return response()->json([
+                    'user_id' => $topSeller->user_id,
+                    'name' => $topSeller->seller_name,
+                    'profile_image' => $topSeller->profile_image,
+                    'shop_name' => $topSeller->shop_name,
+                    'orders' => $topSeller->total_orders,
+                    'products_sold' => $topSeller->total_products_sold,
+                    'revenue' => $topSeller->total_revenue
+                ]);
+            }
+
+            return response()->json(['error' => 'No top seller data available'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No top seller data available', 'debug' => $e->getMessage()], 200);
+        }
     }
 
     // ⭐ Top Rated Product
     public function topRatedProduct()
     {
-        $data = DB::table('products as p')
-            ->leftJoin('product_reviews as r', 'p.product_id', '=', 'r.product_id')
-            ->selectRaw('p.product_name, p.price_kg, p.price_bunches, p.image_url, p.full_image_url, 
-                        AVG(r.rating) as average_rating, COUNT(r.id) as total_reviews')
-            ->groupBy('p.product_id', 'p.product_name', 'p.price_kg', 'p.price_bunches', 'p.image_url', 'p.full_image_url')
-            ->having('total_reviews', '>', 0)
-            ->orderByDesc('average_rating')
-            ->orderByDesc('total_reviews')
-            ->first();
+        try {
+            $topRatedProduct = DB::table('products as p')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('p.ratings_count', '>', 0)
+                ->where('p.avg_rating', '>', 0)
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.price_kg,
+                    p.price_bunches,
+                    p.image_url,
+                    p.avg_rating as average_rating,
+                    p.ratings_count as total_reviews,
+                    s.shop_name,
+                    s.id as seller_id
+                ')
+                ->orderByDesc('p.avg_rating')
+                ->orderByDesc('p.ratings_count')
+                ->first();
+
+            if ($topRatedProduct) {
+                return response()->json([
+                    'product_id' => $topRatedProduct->product_id,
+                    'product_name' => $topRatedProduct->product_name,
+                    'price_kg' => $topRatedProduct->price_kg,
+                    'price_bunches' => $topRatedProduct->price_bunches,
+                    'image_url' => $topRatedProduct->image_url,
+                    'average_rating' => round($topRatedProduct->average_rating, 1),
+                    'total_reviews' => $topRatedProduct->total_reviews,
+                    'shop_name' => $topRatedProduct->shop_name,
+                    'seller_id' => $topRatedProduct->seller_id
+                ]);
+            }
+
+            // Fallback: Return any product with shop name if no rated products
+            $anyProduct = DB::table('products as p')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.price_kg,
+                    p.price_bunches,
+                    p.image_url,
+                    s.shop_name,
+                    s.id as seller_id
+                ')
+                ->first();
+
+            if ($anyProduct) {
+                return response()->json([
+                    'product_id' => $anyProduct->product_id,
+                    'product_name' => $anyProduct->product_name,
+                    'price_kg' => $anyProduct->price_kg,
+                    'price_bunches' => $anyProduct->price_bunches,
+                    'image_url' => $anyProduct->image_url,
+                    'average_rating' => 0,
+                    'total_reviews' => 0,
+                    'shop_name' => $anyProduct->shop_name,
+                    'seller_id' => $anyProduct->seller_id
+                ]);
+            }
+
+            return response()->json(['error' => 'No products available'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No rated products available', 'debug' => $e->getMessage()], 200);
+        }
+    }
+
+    // 📊 Top Yearly Sales (last 12 months)
+    public function yearlySales()
+    {
+        $data = DB::table('order_items as oi')
+            ->join('orders as o', 'oi.order_id', '=', 'o.id')
+            ->where('o.status', 'completed')
+            ->where('oi.created_at', '>=', now()->subMonths(12))
+            ->selectRaw('YEAR(oi.created_at) as year, SUM(oi.price * oi.quantity) as total_sales')
+            ->groupBy('year')
+            ->orderBy('year')
+            ->get();
 
         return response()->json($data);
+    }
+
+    // 🏆 Most Bought Products (top 10)
+    public function mostBoughtProducts()
+    {
+        try {
+            $data = DB::table('order_items as oi')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url, 
+                            s.shop_name, SUM(oi.quantity) as total_quantity_sold,
+                            COUNT(DISTINCT o.id) as total_orders')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 'p.full_image_url', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->limit(10)
+                ->get();
+
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No bought products available'], 200);
+        }
+    }
+
+    // ⭐ Most Rated Products (top 10)
+    public function mostRatedProducts()
+    {
+        try {
+        $data = DB::table('products as p')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('p.ratings_count', '>', 0)
+                ->selectRaw('p.product_id, p.product_name, p.image_url, p.full_image_url,
+                            s.shop_name, p.avg_rating as average_rating, 
+                            p.ratings_count as total_reviews')
+                ->orderByDesc('p.avg_rating')
+                ->orderByDesc('p.ratings_count')
+                ->limit(10)
+                ->get();
+
+            return response()->json($data);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No rated products available'], 200);
+        }
+    }
+
+    // 📊 Daily Product Sales (individual products sold today)
+    public function dailyProductSales()
+    {
+        try {
+            $today = now()->format('Y-m-d');
+            
+            $productSales = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->whereDate('oi.created_at', $today)
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($productSales);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No daily product sales available', 'debug' => $e->getMessage()], 200);
+        }
+    }
+
+    // 📊 Weekly Product Sales (individual products sold this week)
+    public function weeklyProductSales()
+    {
+        try {
+            $weekStart = now()->startOfWeek();
+            $weekEnd = now()->endOfWeek();
+            
+            $productSales = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->whereBetween('oi.created_at', [$weekStart, $weekEnd])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($productSales);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No weekly product sales available', 'debug' => $e->getMessage()], 200);
+        }
+    }
+
+    // 📊 Monthly Product Sales (individual products sold this month)
+    public function monthlyProductSales()
+    {
+        try {
+            $monthStart = now()->startOfMonth();
+            $monthEnd = now()->endOfMonth();
+            
+            $productSales = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->whereBetween('oi.created_at', [$monthStart, $monthEnd])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($productSales);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No monthly product sales available', 'debug' => $e->getMessage()], 200);
+        }
+    }
+
+    // 📊 Yearly Product Sales (individual products sold this year)
+    public function yearlyProductSales()
+    {
+        try {
+            $yearStart = now()->startOfYear();
+            $yearEnd = now()->endOfYear();
+            
+            $productSales = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->where('o.status', 'completed')
+                ->whereBetween('oi.created_at', [$yearStart, $yearEnd])
+                ->selectRaw('
+                    p.product_id,
+                    p.product_name,
+                    p.image_url,
+                    s.shop_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
+                ')
+                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            return response()->json($productSales);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'No yearly product sales available', 'debug' => $e->getMessage()], 200);
+        }
+    }
+
+    // 🔍 DEBUG: Check database relationships
+    public function debugDatabase()
+    {
+        try {
+            // Check if there are completed orders
+            $completedOrders = DB::table('orders')
+                ->where('status', 'completed')
+                ->count();
+
+            // Check if order_items have seller_id
+            $orderItemsWithSeller = DB::table('order_items')
+                ->whereNotNull('seller_id')
+                ->count();
+
+            // Check if products have seller_id
+            $productsWithSeller = DB::table('products')
+                ->whereNotNull('seller_id')
+                ->count();
+
+            // Check sellers table
+            $sellersCount = DB::table('sellers')->count();
+
+            // Check products with ratings
+            $productsWithRatings = DB::table('products')
+                ->where('ratings_count', '>', 0)
+                ->count();
+
+            // Check if order_items can join with products
+            $orderItemsWithProducts = DB::table('order_items as oi')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->where('o.status', 'completed')
+                ->count();
+
+            // Check total products
+            $totalProducts = DB::table('products')->count();
+
+            // Check total order_items
+            $totalOrderItems = DB::table('order_items')->count();
+
+            // Check if order_items have product_id
+            $orderItemsWithProductId = DB::table('order_items')
+                ->whereNotNull('product_id')
+                ->count();
+
+            // Test a simple join to see what's happening
+            $testJoin = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->where('o.status', 'completed')
+                ->selectRaw('oi.product_id, oi.seller_id, oi.quantity, oi.price')
+            ->first();
+
+            return response()->json([
+                'completed_orders' => $completedOrders,
+                'total_products' => $totalProducts,
+                'total_order_items' => $totalOrderItems,
+                'order_items_with_product_id' => $orderItemsWithProductId,
+                'order_items_with_seller_id' => $orderItemsWithSeller,
+                'products_with_seller_id' => $productsWithSeller,
+                'sellers_count' => $sellersCount,
+                'products_with_ratings' => $productsWithRatings,
+                'order_items_with_products' => $orderItemsWithProducts,
+                'test_join_data' => $testJoin
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Get Top Products by Sales Amount
+     * Returns Top 5 and Top 10 products based on total sales (quantity × price)
+     * Supports filtering by time period: daily, weekly, monthly, yearly
+     */
+    public function topProductsBySales(Request $request)
+    {
+        try {
+            // Get period from request (default to 'monthly')
+            $period = $request->input('period', 'monthly');
+            
+            // Build date filter based on period
+            $dateFilter = $this->buildDateFilter($period);
+            
+            // Query to get top products by total sales amount
+            $topProducts = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->where('o.status', 'completed')
+                ->whereBetween('o.created_at', [$dateFilter['startDate'], $dateFilter['endDate']])
+                ->selectRaw('
+                    p.product_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders,
+                    p.image_url
+                ')
+                ->groupBy('p.product_name', 'p.image_url')
+                ->orderByDesc('total_sales_amount')
+                ->get();
+
+            // Format the data
+            $formattedProducts = $topProducts->map(function ($product) {
+                return [
+                    'product_name' => $product->product_name,
+                    'total_quantity_sold' => (int) $product->total_quantity_sold,
+                    'total_sales_amount' => round((float) $product->total_sales_amount, 2),
+                    'total_orders' => (int) $product->total_orders,
+                    'image_url' => $product->image_url
+                ];
+            });
+
+            // Split into Top 5 and Top 10
+            $top5 = $formattedProducts->take(5)->values();
+            $top10 = $formattedProducts->take(10)->values();
+
+            return response()->json([
+                'period' => $period,
+                'date_range' => $this->getDateRangeDescription($period),
+                'top5' => $top5,
+                'top10' => $top10,
+                'total_products_found' => $formattedProducts->count()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch top products',
+                'debug' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Top Products by Quantity Sold
+     * Alternative view focusing on quantity rather than sales amount
+     */
+    public function topProductsByQuantity(Request $request)
+    {
+        try {
+            $period = $request->input('period', 'monthly');
+            $dateFilter = $this->buildDateFilter($period);
+            
+            $topProducts = DB::table('order_items as oi')
+                ->join('orders as o', 'oi.order_id', '=', 'o.id')
+                ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->where('o.status', 'completed')
+                ->whereBetween('o.created_at', [$dateFilter['startDate'], $dateFilter['endDate']])
+                ->selectRaw('
+                    p.product_name,
+                    SUM(oi.quantity) as total_quantity_sold,
+                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders,
+                    p.image_url
+                ')
+                ->groupBy('p.product_name', 'p.image_url')
+                ->orderByDesc('total_quantity_sold')
+                ->get();
+
+            $formattedProducts = $topProducts->map(function ($product) {
+                return [
+                    'product_name' => $product->product_name,
+                    'total_quantity_sold' => (int) $product->total_quantity_sold,
+                    'total_sales_amount' => round((float) $product->total_sales_amount, 2),
+                    'total_orders' => (int) $product->total_orders,
+                    'image_url' => $product->image_url
+                ];
+            });
+
+            $top5 = $formattedProducts->take(5)->values();
+            $top10 = $formattedProducts->take(10)->values();
+
+            return response()->json([
+                'period' => $period,
+                'date_range' => $this->getDateRangeDescription($period),
+                'top5' => $top5,
+                'top10' => $top10,
+                'total_products_found' => $formattedProducts->count()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch top products by quantity',
+                'debug' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Build date filter based on period
+     * Returns proper whereBetween conditions for each time period
+     * Uses current time as end date to include all data up to now
+     */
+    private function buildDateFilter($period)
+    {
+        $now = now();
+        
+        switch ($period) {
+            case 'daily':
+                // Today: Orders from start of today to current time
+                $startDate = $now->copy()->startOfDay();
+                $endDate = $now; // Use current time instead of end of day
+                break;
+                
+            case 'weekly':
+                // This Week: Orders from start of this week (Monday) to current time
+                $startDate = $now->copy()->startOfWeek();
+                $endDate = $now; // Use current time instead of end of week
+                break;
+                
+            case 'monthly':
+                // This Month: Orders from first day of current month to current time
+                $startDate = $now->copy()->startOfMonth();
+                $endDate = $now; // Use current time instead of end of month
+                break;
+                
+            case 'yearly':
+                // This Year: Orders from first day of current year to current time
+                $startDate = $now->copy()->startOfYear();
+                $endDate = $now; // Use current time instead of end of year
+                break;
+                
+            default:
+                // Default to monthly if period is not recognized
+                $startDate = $now->copy()->startOfMonth();
+                $endDate = $now;
+                break;
+        }
+        
+        return [
+            'startDate' => $startDate,
+            'endDate' => $endDate
+        ];
+    }
+
+    /**
+     * Debug date ranges for troubleshooting
+     */
+    public function debugDateRanges(Request $request)
+    {
+        $period = $request->input('period', 'monthly');
+        $dateFilter = $this->buildDateFilter($period);
+        
+        // Get some sample order data to see what dates exist
+        $sampleOrders = DB::table('orders')
+            ->where('status', 'completed')
+            ->select('id', 'created_at')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
+        
+        return response()->json([
+            'period' => $period,
+            'date_filter' => [
+                'start_date' => $dateFilter['startDate']->toDateTimeString(),
+                'end_date' => $dateFilter['endDate']->toDateTimeString(),
+                'start_timestamp' => $dateFilter['startDate']->timestamp,
+                'end_timestamp' => $dateFilter['endDate']->timestamp,
+            ],
+            'sample_orders' => $sampleOrders,
+            'current_time' => now()->toDateTimeString(),
+            'current_timestamp' => now()->timestamp,
+        ]);
+    }
+
+    /**
+     * Get human-readable date range description
+     */
+    private function getDateRangeDescription($period)
+    {
+        $now = now();
+        
+        switch ($period) {
+            case 'daily':
+                return $now->format('M d, Y');
+                
+            case 'weekly':
+                return $now->startOfWeek()->format('M d') . ' - ' . $now->endOfWeek()->format('M d, Y');
+                
+            case 'monthly':
+                return $now->format('F Y');
+                
+            case 'yearly':
+                return $now->format('Y');
+                
+            default:
+                return $now->format('F Y');
+        }
     }
 }

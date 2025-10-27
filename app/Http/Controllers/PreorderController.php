@@ -235,8 +235,16 @@ class PreorderController extends Controller
                 ], 404);
             }
 
-            // Basic rule: if stocks are low (<=2kg) OR an upcoming crop schedule exists, allow preorder
-            $stockKg = (float)($product->stock_kg ?? 0);
+            // Calculate total stock from all variations
+            $premiumStock = (float)($product->premium_stock_kg ?? 0);
+            $typeAStock = (float)($product->type_a_stock_kg ?? 0);
+            $typeBStock = (float)($product->type_b_stock_kg ?? 0);
+            $totalStockKg = $premiumStock + $typeAStock + $typeBStock;
+            
+            // If no variation stocks, use main stock_kg
+            if ($totalStockKg <= 0) {
+                $totalStockKg = (float)($product->stock_kg ?? 0);
+            }
 
             // Try to find the nearest upcoming crop schedule for this product
             $nextSchedule = DB::table('crop_schedules')
@@ -247,7 +255,9 @@ class PreorderController extends Controller
                 ->orderBy('expected_harvest_start', 'asc')
                 ->first();
 
-            $eligible = ($stockKg <= 2) || !is_null($nextSchedule);
+            // NEW RULE: Preorder eligible ONLY when BOTH conditions are met:
+            // 1. Total stock < 2kg AND 2. Valid crop schedule exists
+            $eligible = ($totalStockKg < 2) && !is_null($nextSchedule);
 
             // Build variations array with available stock information
             $variations = [];
@@ -295,6 +305,18 @@ class PreorderController extends Controller
                 ];
             }
 
+            // Debug logging for preorder eligibility
+            \Log::info('Preorder Eligibility Check', [
+                'product_id' => $id,
+                'total_stock_kg' => $totalStockKg,
+                'premium_stock' => $premiumStock,
+                'type_a_stock' => $typeAStock,
+                'type_b_stock' => $typeBStock,
+                'has_schedule' => !is_null($nextSchedule),
+                'schedule_date' => $nextSchedule->expected_harvest_start ?? null,
+                'eligible' => $eligible
+            ]);
+
             return response()->json([
                 'eligible' => (bool)$eligible,
                 'harvest_date' => $nextSchedule->expected_harvest_start ?? null,
@@ -305,6 +327,17 @@ class PreorderController extends Controller
                     'harvest_start' => $nextSchedule->expected_harvest_start,
                     'harvest_end' => $nextSchedule->expected_harvest_end,
                 ] : null,
+                // Debug info for frontend
+                'debug' => [
+                    'total_stock_kg' => $totalStockKg,
+                    'has_schedule' => !is_null($nextSchedule),
+                    'stock_breakdown' => [
+                        'premium' => $premiumStock,
+                        'type_a' => $typeAStock,
+                        'type_b' => $typeBStock,
+                        'main' => (float)($product->stock_kg ?? 0)
+                    ]
+                ]
             ]);
         } catch (\Throwable $e) {
             // Never break the app; return a safe default with context
