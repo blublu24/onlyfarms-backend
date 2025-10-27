@@ -549,12 +549,11 @@ class Product extends Model
             return $imageUrl;
         }
         
-        // Construct full URL using storage URL
+        // Construct full URL using our image serving route
         $baseUrl = config('app.url');
         
-        // Images are stored in storage/app/public and should be accessed via /storage/
-        // But the imageUrl already contains the path without /storage/ prefix
-        return $baseUrl . '/storage/' . $imageUrl;
+        // Use the /api/images/ route to serve images directly from storage
+        return $baseUrl . '/api/images/' . $imageUrl;
     }
 
     /**

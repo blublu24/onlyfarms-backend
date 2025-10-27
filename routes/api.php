@@ -314,47 +314,23 @@ Route::get('/test-image/{filename}', function ($filename) {
     ]);
 });
 
-// Fix storage by copying files (Railway doesn't support symlinks)
-Route::get('/fix-storage', function () {
-    $storagePath = storage_path('app/public');
-    $publicPath = public_path('storage');
+// Serve images directly from storage (Railway workaround)
+Route::get('/images/{path}', function ($path) {
+    $storagePath = storage_path('app/public/' . $path);
     
-    $result = [];
-    
-    // Check if storage directory exists
-    if (!is_dir($storagePath)) {
-        return response()->json(['error' => 'Storage directory does not exist: ' . $storagePath], 500);
+    if (!file_exists($storagePath)) {
+        return response()->json(['error' => 'Image not found'], 404);
     }
     
-    $result['storage_exists'] = true;
-    $result['storage_path'] = $storagePath;
-    $result['public_path'] = $publicPath;
+    $mimeType = mime_content_type($storagePath);
+    $fileContents = file_get_contents($storagePath);
     
-    // Remove existing directory if it exists
-    if (is_dir($publicPath)) {
-        deleteDirectory($publicPath);
-        $result['removed_existing_directory'] = true;
-    }
-    
-    // Create public/storage directory
-    if (!mkdir($publicPath, 0755, true)) {
-        return response()->json(['error' => 'Failed to create public/storage directory'], 500);
-    }
-    
-    // Copy files from storage to public
-    copyDirectory($storagePath, $publicPath);
-    $result['files_copied'] = true;
-    
-    // Verify the copy worked
-    if (is_dir($publicPath)) {
-        $result['copy_verified'] = true;
-        $result['files_in_public_storage'] = array_slice(scandir($publicPath), 2, 10);
-    } else {
-        return response()->json(['error' => 'Storage copy verification failed'], 500);
-    }
-    
-    return response()->json($result);
-});
+    return response($fileContents, 200, [
+        'Content-Type' => $mimeType,
+        'Content-Length' => strlen($fileContents),
+        'Cache-Control' => 'public, max-age=31536000', // Cache for 1 year
+    ]);
+})->where('path', '.*');
 
 // Helper function to copy directory recursively
 function copyDirectory($src, $dst) {
