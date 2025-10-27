@@ -314,12 +314,17 @@ Route::get('/test-image/{filename}', function ($filename) {
     ]);
 });
 
+// Test route
+Route::get('/test-image-route', function () {
+    return response()->json(['message' => 'Image route is working']);
+});
+
 // Serve images directly from storage (Railway workaround)
 Route::get('/images/{path}', function ($path) {
     $storagePath = storage_path('app/public/' . $path);
     
     if (!file_exists($storagePath)) {
-        return response()->json(['error' => 'Image not found'], 404);
+        return response()->json(['error' => 'Image not found', 'path' => $storagePath], 404);
     }
     
     $mimeType = mime_content_type($storagePath);
