@@ -314,6 +314,49 @@ Route::get('/test-image/{filename}', function ($filename) {
     ]);
 });
 
+// Fix storage symlink route
+Route::get('/fix-storage', function () {
+    $storagePath = storage_path('app/public');
+    $publicPath = public_path('storage');
+    
+    $result = [];
+    
+    // Check if storage directory exists
+    if (!is_dir($storagePath)) {
+        return response()->json(['error' => 'Storage directory does not exist: ' . $storagePath], 500);
+    }
+    
+    $result['storage_exists'] = true;
+    $result['storage_path'] = $storagePath;
+    $result['public_path'] = $publicPath;
+    
+    // Remove existing symlink if it exists
+    if (is_link($publicPath)) {
+        unlink($publicPath);
+        $result['removed_existing_symlink'] = true;
+    } elseif (is_dir($publicPath)) {
+        rmdir($publicPath);
+        $result['removed_existing_directory'] = true;
+    }
+    
+    // Create the symlink
+    if (symlink($storagePath, $publicPath)) {
+        $result['symlink_created'] = true;
+    } else {
+        return response()->json(['error' => 'Failed to create storage symlink'], 500);
+    }
+    
+    // Verify the symlink works
+    if (is_link($publicPath) && is_dir($publicPath)) {
+        $result['symlink_verified'] = true;
+        $result['files_in_storage'] = array_slice(scandir($publicPath), 2, 10);
+    } else {
+        return response()->json(['error' => 'Storage symlink verification failed'], 500);
+    }
+    
+    return response()->json($result);
+});
+
 // Debug: Create storage link manually
 Route::post('/debug/create-storage-link', function () {
     try {
