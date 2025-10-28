@@ -503,14 +503,16 @@ Route::post('/send-phone-verification-code', [AuthController::class, 'sendPhoneV
 Route::post('/resend-phone-verification-code', [AuthController::class, 'resendPhoneVerificationCode'])->middleware('throttle:3,1');
 Route::post('/verify-phone', [AuthController::class, 'verifyPhone'])->middleware('throttle:5,1');
 
-// Email verification routes (public)
-// Pre-signup email verification (no user account required)
-Route::post('/send-email-verification-code', [\App\Http\Controllers\AuthController::class, 'sendPreSignupEmailCode'])->middleware('throttle:3,1');
-Route::post('/verify-email', [\App\Http\Controllers\AuthController::class, 'verifyPreSignupEmailCode'])->middleware('throttle:5,1');
+// Email verification routes (public) - OPTIMIZED VERSION
+// Primary email verification endpoints (most reliable)
+Route::post('/send-email-verification-code', [\App\Http\Controllers\OptimizedEmailVerificationController::class, 'sendVerificationCode'])->middleware('throttle:3,1');
+Route::post('/verify-email', [\App\Http\Controllers\OptimizedEmailVerificationController::class, 'verifyEmail'])->middleware('throttle:5,1');
+Route::post('/resend-email-verification-code', [\App\Http\Controllers\OptimizedEmailVerificationController::class, 'resendVerificationCode'])->middleware('throttle:3,1');
 
-// Old email verification methods (for existing users)
+// Legacy email verification methods (for backward compatibility)
+Route::post('/send-email-verification-code-legacy', [\App\Http\Controllers\AuthController::class, 'sendPreSignupEmailCode'])->middleware('throttle:3,1');
+Route::post('/verify-email-legacy', [\App\Http\Controllers\AuthController::class, 'verifyPreSignupEmailCode'])->middleware('throttle:5,1');
 Route::post('/send-email-verification-code-old', [\App\Http\Controllers\AuthController::class, 'sendEmailVerificationCode'])->middleware('throttle:3,1');
-Route::post('/resend-email-verification-code', [\App\Http\Controllers\AuthController::class, 'resendEmailVerificationCode'])->middleware('throttle:3,1');
 Route::post('/verify-email-old', [\App\Http\Controllers\AuthController::class, 'verifyEmail'])->middleware('throttle:5,1');
 
 // General mail send endpoint (PHPMailer)
