@@ -321,22 +321,37 @@ Route::get('/test-deployment', function () {
 });
 
 // Simple image serving route for Railway
+// Handles both product images and profile images
 Route::get('/image/{filename}', function ($filename) {
     try {
-        $filePath = storage_path('app/public/products/' . $filename);
-        
-        if (!file_exists($filePath)) {
-            return response()->json(['error' => 'Image not found', 'path' => $filePath], 404);
+        // Try product images first (storage/app/public/products/)
+        $productPath = storage_path('app/public/products/' . $filename);
+        if (file_exists($productPath)) {
+            $mimeType = mime_content_type($productPath);
+            $fileContents = file_get_contents($productPath);
+            
+            return response($fileContents, 200, [
+                'Content-Type' => $mimeType,
+                'Content-Length' => strlen($fileContents),
+                'Cache-Control' => 'public, max-age=31536000',
+            ]);
         }
         
-        $mimeType = mime_content_type($filePath);
-        $fileContents = file_get_contents($filePath);
+        // Try profile images (public/uploads/profiles/)
+        $profilePath = public_path('uploads/profiles/' . $filename);
+        if (file_exists($profilePath)) {
+            $mimeType = mime_content_type($profilePath);
+            $fileContents = file_get_contents($profilePath);
+            
+            return response($fileContents, 200, [
+                'Content-Type' => $mimeType,
+                'Content-Length' => strlen($fileContents),
+                'Cache-Control' => 'public, max-age=31536000',
+            ]);
+        }
         
-        return response($fileContents, 200, [
-            'Content-Type' => $mimeType,
-            'Content-Length' => strlen($fileContents),
-            'Cache-Control' => 'public, max-age=31536000',
-        ]);
+        // Image not found
+        return response()->json(['error' => 'Image not found', 'filename' => $filename], 404);
     } catch (Exception $e) {
         return response()->json(['error' => 'Failed to serve image', 'message' => $e->getMessage()], 500);
     }

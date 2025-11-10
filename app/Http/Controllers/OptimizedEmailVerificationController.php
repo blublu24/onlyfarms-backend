@@ -213,11 +213,14 @@ This email was sent by OnlyFarms
      */
     public function verifyEmail(Request $request)
     {
+        // Support both flows: with user_id (existing user) or without (new signup)
         $validator = Validator::make($request->all(), [
-            'user_id' => 'required|integer',
+            'user_id' => 'nullable|integer',
             'verification_code' => 'required|string|size:6',
             'name' => 'required|string|max:255',
+            'email' => 'required|email',
             'password' => 'required|string|min:6|confirmed',
+            'phone_number' => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -227,8 +230,9 @@ This email was sent by OnlyFarms
             ], 422);
         }
 
-        // Get the verification record
+        // Get the verification record by email and code
         $verification = DB::table('email_verifications')
+            ->where('email', $request->email)
             ->where('verification_code', $request->verification_code)
             ->where('expires_at', '>', now())
             ->first();
@@ -239,21 +243,40 @@ This email was sent by OnlyFarms
             ], 400);
         }
 
-        // Get the user record (should exist from sendVerificationCode)
-        $user = User::find($request->user_id);
-        if (!$user) {
+        // Check if user already exists with this email
+        $existingUser = User::where('email', $request->email)->first();
+        if ($existingUser) {
             return response()->json([
-                'message' => 'User not found. Please start the registration process again.',
-            ], 404);
+                'message' => 'Email has been used already. Please use a different email address.',
+            ], 409);
         }
 
-        // Update user with verified email and complete registration
-        $user->update([
-            'email' => $verification->email,
-            'name' => $request->name,
-            'password' => bcrypt($request->password),
-            'email_verified_at' => now(),
-        ]);
+        // Create new user if user_id not provided (new signup flow)
+        if (!$request->user_id) {
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => bcrypt($request->password),
+                'phone_number' => $request->phone_number ?? null,
+                'email_verified_at' => now(),
+            ]);
+        } else {
+            // Get existing user (legacy flow)
+            $user = User::find($request->user_id);
+            if (!$user) {
+                return response()->json([
+                    'message' => 'User not found. Please start the registration process again.',
+                ], 404);
+            }
+
+            // Update user with verified email and complete registration
+            $user->update([
+                'email' => $verification->email,
+                'name' => $request->name,
+                'password' => bcrypt($request->password),
+                'email_verified_at' => now(),
+            ]);
+        }
 
         // Clean up verification record
         DB::table('email_verifications')->where('email', $verification->email)->delete();
