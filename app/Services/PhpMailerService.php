@@ -124,17 +124,22 @@ class PhpMailerService
      */
     private function buildConnectionAttempts(string $host, int $port, ?string $encryption): array
     {
-        $attempts = [[
+        $attempts = [];
+
+        $preferredPort = $port ?: 587;
+        $preferredEncryption = $encryption ? strtolower($encryption) : 'tls';
+
+        $attempts[] = [
             'host' => $host,
-            'port' => $port ?: 587,
-            'encryption' => $encryption ? strtolower($encryption) : 'tls',
-        ]];
+            'port' => $preferredPort,
+            'encryption' => $preferredEncryption,
+        ];
 
         $normalizedEncryption = $encryption ? strtolower($encryption) : null;
         $isGmailHost = str_contains($host, 'gmail') || str_contains($host, 'googlemail');
 
         if ($isGmailHost) {
-            if (!($port === 587 && ($normalizedEncryption === 'tls' || $normalizedEncryption === 'starttls'))) {
+            if (!($preferredPort === 587 && ($normalizedEncryption === 'tls' || $normalizedEncryption === 'starttls'))) {
                 $attempts[] = [
                     'host' => $host,
                     'port' => 587,
@@ -142,14 +147,14 @@ class PhpMailerService
                 ];
             }
 
-            if (!($port === 465 && $normalizedEncryption === 'ssl')) {
+            if (!($preferredPort === 465 && $normalizedEncryption === 'ssl')) {
                 $attempts[] = [
                     'host' => $host,
                     'port' => 465,
                     'encryption' => 'ssl',
                 ];
             }
-        } elseif ($port !== 587) {
+        } elseif ($preferredPort !== 587) {
             $attempts[] = [
                 'host' => $host,
                 'port' => 587,
