@@ -15,64 +15,9 @@ class AuthController extends Controller
     // REGISTER method
     public function register(Request $request)
     {
-        // All registrations use the same flow now (no phone verification)
-        // 'signup_method' is ignored - just register directly
-        
-        // Combined email/phone registration (phone is optional)
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|unique:users',
-            'phone_number' => 'nullable|string|unique:users|min:11|max:13',
-            'password' => 'required|string|min:6|confirmed',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
-        }
-
-        // Validate phone format only if provided
-        if ($request->phone_number && !$this->isValidPhilippinePhoneNumber($request->phone_number)) {
-            return response()->json([
-                'message' => 'Validation failed',
-                'errors' => ['phone_number' => ['Please enter a valid Philippine mobile number (+63 9XX XXX XXXX)']]
-            ], 422);
-        }
-
-        // Create user with email and optional phone (auto-verified)
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone_number' => $request->phone_number, // Optional
-            'password' => Hash::make($request->password),
-            'is_seller' => false,
-            'email_verified_at' => now(), // Auto-verified (used pre-signup verification)
-            'phone_verified_at' => $request->phone_number ? now() : null, // Auto-verified if provided
-        ]);
-
-        // Refresh user to ensure all attributes are loaded
-        $user->refresh();
-
-        // Generate authentication token (email already verified in pre-signup)
-        $newToken = $user->createToken('onlyfarms_token');
-        $expiresAt = now()->addHours(12);
-        $newToken->accessToken->expires_at = $expiresAt;
-        $newToken->accessToken->save();
-
-        \Log::info("Email registration successful", [
-            'user_id' => $user->id,
-            'email' => $user->email,
-            'has_phone' => !empty($user->phone_number)
-        ]);
-
         return response()->json([
-            'message' => 'User created successfully!',
-            'user' => $user,
-            'token' => $newToken->plainTextToken,
-            'expires_at' => $expiresAt->toISOString()
-        ], 201);
+            'message' => 'Direct registration is disabled. Please request an email verification code and complete signup via /api/verify-email.'
+        ], 410);
     }
 
     // LOGIN method

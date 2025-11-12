@@ -65,6 +65,7 @@ class OptimizedEmailVerificationController extends Controller
         // Try PHPMailer first (most reliable), fallback to Laravel Mail
         $emailSent = false;
         $method = '';
+        $lastError = null;
 
         try {
             // Method 1: PHPMailer (Primary - Most Reliable)
@@ -92,27 +93,33 @@ class OptimizedEmailVerificationController extends Controller
                     'phpmailer_error' => $e->getMessage(),
                     'laravel_mail_error' => $e2->getMessage()
                 ]);
+                $lastError = $e2->getMessage();
             }
         }
 
         if ($emailSent) {
-            return response()->json([
+            $payload = [
                 'message' => 'Verification code sent successfully!',
                 'method' => $method,
-                'verification_code' => $verificationCode, // For development/testing
-                'gmail_url' => $this->generateGmailUrl($email, $verificationCode),
                 'expires_at' => $expiresAt->toISOString(),
-            ], 200);
-        } else {
-            // Still return success with code for development/testing
-            return response()->json([
-                'message' => 'Email service temporarily unavailable. Please use the verification code below.',
-                'verification_code' => $verificationCode,
                 'gmail_url' => $this->generateGmailUrl($email, $verificationCode),
-                'expires_at' => $expiresAt->toISOString(),
-                'note' => 'This is a development fallback. Configure SMTP for production.'
-            ], 200);
+            ];
+
+            if (app()->environment('local')) {
+                $payload['verification_code'] = $verificationCode;
+            }
+
+            return response()->json($payload, 200);
         }
+
+        Log::error('Failed to send verification code via all providers', [
+            'email' => $email,
+            'last_error' => $lastError,
+        ]);
+
+        return response()->json([
+            'message' => 'We could not send the verification code. Please try again shortly.'
+        ], 503);
     }
 
     /**
@@ -341,6 +348,7 @@ This email was sent by OnlyFarms
         // Try PHPMailer first, fallback to Laravel Mail
         $emailSent = false;
         $method = '';
+        $lastError = null;
 
         try {
             $this->sendWithPhpMailer($user->email, $verificationCode);
@@ -358,23 +366,34 @@ This email was sent by OnlyFarms
                     'phpmailer_error' => $e->getMessage(),
                     'laravel_mail_error' => $e2->getMessage()
                 ]);
+                $lastError = $e2->getMessage();
             }
         }
 
         if ($emailSent) {
-            return response()->json([
+            $payload = [
                 'message' => 'New verification code sent successfully!',
                 'method' => $method,
-                'verification_code' => $verificationCode, // For development/testing
                 'expires_at' => $expiresAt->toISOString(),
-            ], 200);
-        } else {
-            return response()->json([
-                'message' => 'Failed to resend verification code. Please try again.',
-                'verification_code' => $verificationCode, // Still return for development
-                'expires_at' => $expiresAt->toISOString(),
-            ], 200);
+                'gmail_url' => $this->generateGmailUrl($user->email, $verificationCode),
+            ];
+
+            if (app()->environment('local')) {
+                $payload['verification_code'] = $verificationCode;
+            }
+
+            return response()->json($payload, 200);
         }
+
+        Log::error('Failed to deliver verification code on resend', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'last_error' => $lastError,
+        ]);
+
+        return response()->json([
+            'message' => 'Failed to resend verification code. Please try again.'
+        ], 503);
     }
 
     /**
