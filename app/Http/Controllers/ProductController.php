@@ -100,17 +100,23 @@ class ProductController extends Controller
         $products = $products->map(function ($p) {
             // ✅ Get the full image URL using the model method
             $imageUrl = $p->full_image_url;
-            
+
+            $premiumStock = (float) ($p->premium_stock_kg ?? 0);
+            $typeAStock = (float) ($p->type_a_stock_kg ?? 0);
+            $typeBStock = (float) ($p->type_b_stock_kg ?? 0);
+            $totalVariationStock = $premiumStock + $typeAStock + $typeBStock;
+            $stockKg = $totalVariationStock > 0 ? $totalVariationStock : (float) ($p->stock_kg ?? 0);
+
             // Get vegetable slug and available units
             $vegetableSlug = $p->getVegetableSlug();
             $availableUnits = \App\Models\UnitConversion::getAvailableUnits($vegetableSlug);
-            
+
             return [
                 'product_id' => $p->product_id,
                 'product_name' => $p->product_name,
                 'image_url' => $imageUrl, // ✅ Full URL
                 'fixed_image_url' => $imageUrl, // ✅ Full URL
-                'stock_kg' => $p->stock_kg,
+                'stock_kg' => $stockKg,
                 'price_per_kg' => $p->price_per_kg,
                 'available_units' => $availableUnits, // ✅ Correct units based on vegetable type
                 'vegetable_slug' => $vegetableSlug, // ✅ For frontend reference
@@ -196,6 +202,7 @@ class ProductController extends Controller
             'available_units' => 'required|string', // JSON string
             'pieces_per_bundle' => 'nullable|integer|min:1',
             'variation_type' => 'nullable|string|max:255',
+            'unit_pricing' => 'nullable|string',
             'images.*' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
             
             // Variation prices
@@ -218,6 +225,16 @@ class ProductController extends Controller
         // Validate pieces_per_bundle if tali is in available units
         if (in_array('tali', $availableUnits) && empty($validated['pieces_per_bundle'])) {
             return response()->json(['error' => 'Pieces per bundle is required when tali unit is selected'], 422);
+        }
+
+        if (array_key_exists('unit_pricing', $validated) && $validated['unit_pricing'] !== null && $validated['unit_pricing'] !== '') {
+            $unitPricing = json_decode($validated['unit_pricing'], true);
+            if (!is_array($unitPricing)) {
+                return response()->json(['error' => 'Unit pricing must be a valid JSON structure'], 422);
+            }
+            $validated['unit_pricing'] = $unitPricing;
+        } else {
+            unset($validated['unit_pricing']);
         }
 
         // Handle multiple images
@@ -284,6 +301,7 @@ class ProductController extends Controller
             'available_units' => 'sometimes|string', // JSON string
             'pieces_per_bundle' => 'nullable|integer|min:1',
             'image_url' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+            'unit_pricing' => 'nullable|string',
             
             // Variation prices
             'premium_price_per_kg' => 'nullable|numeric|min:0',
@@ -309,6 +327,14 @@ class ProductController extends Controller
             }
             
             $validated['available_units'] = $availableUnits;
+        }
+
+        if (isset($validated['unit_pricing'])) {
+            $unitPricing = json_decode($validated['unit_pricing'], true);
+            if (!is_array($unitPricing)) {
+                return response()->json(['error' => 'Unit pricing must be a valid JSON structure'], 422);
+            }
+            $validated['unit_pricing'] = $unitPricing;
         }
 
 

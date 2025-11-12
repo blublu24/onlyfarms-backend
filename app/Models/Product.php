@@ -31,6 +31,7 @@ class Product extends Model
         'total_sold',
         'price_per_kg',
         'available_units',
+        'unit_pricing',
         'pieces_per_bundle',
 
         // Variation prices
@@ -70,6 +71,7 @@ class Product extends Model
         'stock_kg' => 'decimal:4',
         'price_per_kg' => 'decimal:2',
         'available_units' => 'array',
+        'unit_pricing' => 'array',
         'additional_images' => 'array',
         'avg_rating' => 'decimal:2',
         'ratings_count' => 'integer',
