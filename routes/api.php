@@ -350,6 +350,19 @@ Route::get('/image/{filename}', function ($filename) {
             ]);
         }
         
+        // Try seller ID images (storage/app/public/seller_ids/)
+        $sellerIdPath = storage_path('app/public/seller_ids/' . $filename);
+        if (file_exists($sellerIdPath)) {
+            $mimeType = mime_content_type($sellerIdPath);
+            $fileContents = file_get_contents($sellerIdPath);
+            
+            return response($fileContents, 200, [
+                'Content-Type' => $mimeType,
+                'Content-Length' => strlen($fileContents),
+                'Cache-Control' => 'public, max-age=31536000',
+            ]);
+        }
+        
         // Image not found
         return response()->json(['error' => 'Image not found', 'filename' => $filename], 404);
     } catch (Exception $e) {
