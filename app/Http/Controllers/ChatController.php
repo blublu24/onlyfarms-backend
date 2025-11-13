@@ -8,6 +8,7 @@ use App\Models\Seller;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use App\Events\MessageSent;
+use App\Events\ChatMessageNotification;
 
 class ChatController extends Controller
 {
@@ -101,10 +102,44 @@ class ChatController extends Controller
 
         $conversation->update(['last_message_at' => now()]);
 
+        $conversation->loadMissing(['buyer', 'seller.user', 'product']);
         $message->load('sender');
 
         // Broadcast to the private conversation channel
         broadcast(new MessageSent($message))->toOthers();
+
+        $recipientUserId = null;
+        if ($authId === $conversation->buyer_id) {
+            $recipientUserId = $conversation->seller?->user?->id;
+        } else {
+            $recipientUserId = $conversation->buyer?->id;
+        }
+
+        if ($recipientUserId) {
+            $senderName = $message->sender->name ?? 'a customer';
+
+            $payload = [
+                'type' => 'chat_message',
+                'title' => 'New Message! 💬',
+                'message' => "You have a new message from {$senderName}",
+                'sender' => [
+                    'id' => $message->sender_id,
+                    'name' => $message->sender->name ?? null,
+                ],
+                'conversation' => [
+                    'id' => $conversation->id,
+                    'product_id' => $conversation->product_id,
+                    'product_name' => $conversation->product->product_name ?? null,
+                ],
+                'message' => [
+                    'id' => $message->id,
+                    'body' => $message->body,
+                    'created_at' => $message->created_at->toDateTimeString(),
+                ],
+            ];
+
+            broadcast(new ChatMessageNotification($recipientUserId, $payload))->toOthers();
+        }
 
         return response()->json([
             'message' => 'Message sent successfully',

@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Events\OrderCreatedNotification;
 use App\Models\Product;
 use App\Models\Address;
+use App\Models\Seller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -205,6 +207,55 @@ class OrderController extends Controller
 
                 foreach ($lineItems as $li) {
                     $order->items()->create($li);
+                }
+
+                $order->load(['items', 'user', 'items.product']);
+
+                $itemsGroupedBySeller = $order->items->groupBy('seller_id');
+
+                foreach ($itemsGroupedBySeller as $sellerId => $items) {
+                    $seller = Seller::with('user')->find($sellerId);
+
+                    if (!$seller || !$seller->user) {
+                        continue;
+                    }
+
+                    $itemsPayload = $items->map(function ($item) {
+                        return [
+                            'id' => $item->id,
+                            'product_id' => $item->product_id,
+                            'product_name' => $item->product_name,
+                            'quantity' => $item->quantity,
+                            'unit' => $item->unit,
+                            'price' => $item->price,
+                            'variation_type' => $item->variation_type,
+                            'variation_name' => $item->variation_name,
+                        ];
+                    })->values()->all();
+
+                    $firstItemName = $itemsPayload[0]['product_name'] ?? 'your products';
+
+                    $payload = [
+                        'type' => 'new_order',
+                        'title' => 'New Order Received! 🛒',
+                        'message' => "You have a new order for {$firstItemName}",
+                        'order' => [
+                            'id' => $order->id,
+                            'status' => $order->status,
+                            'total' => $order->total,
+                            'created_at' => $order->created_at?->toIso8601String() ?? now()->toIso8601String(),
+                            'delivery_address' => $order->delivery_address,
+                            'item_count' => count($itemsPayload),
+                            'items' => $itemsPayload,
+                            'buyer' => [
+                                'id' => $order->user->id,
+                                'name' => $order->user->name,
+                                'phone_number' => $order->user->phone_number,
+                            ],
+                        ],
+                    ];
+
+                    broadcast(new OrderCreatedNotification($seller->user->id, $payload))->toOthers();
                 }
 
                 // Note: Stock is NOT decremented here - it will only be decremented when seller accepts the order
