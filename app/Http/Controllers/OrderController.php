@@ -64,7 +64,7 @@ class OrderController extends Controller
             $data = $request->validate([
                 'items' => 'required|array|min:1',
                 'items.*.product_id' => 'required|integer|exists:products,product_id',
-                'items.*.quantity' => 'required|integer|min:1|max:999',
+                'items.*.quantity' => 'required|numeric|min:0.01|max:999',
                 'items.*.unit' => 'required|string|in:kg,bunches',
                 'items.*.variation_type' => 'nullable|string',
                 'items.*.variation_name' => 'nullable|string',
@@ -104,7 +104,7 @@ class OrderController extends Controller
                     if (!$product)
                         abort(422, "Product {$row['product_id']} not found");
                     
-                    $qty = (int) $row['quantity'];
+                    $qty = (float) $row['quantity'];
                     $unit = $row['unit'];
                     
                     // Handle variation prices first
