@@ -263,7 +263,7 @@ This email was sent by OnlyFarms
             $user = User::create([
                 'name' => $request->name,
                 'email' => $request->email,
-                'password' => bcrypt($request->password),
+                'password' => $request->password,
                 'phone_number' => $request->phone_number ?? null,
                 'email_verified_at' => now(),
             ]);
@@ -280,7 +280,7 @@ This email was sent by OnlyFarms
             $user->update([
                 'email' => $verification->email,
                 'name' => $request->name,
-                'password' => bcrypt($request->password),
+                'password' => $request->password,
                 'email_verified_at' => now(),
             ]);
         }
