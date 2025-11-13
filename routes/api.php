@@ -470,6 +470,7 @@ use App\Http\Controllers\EmailVerificationController;
 use App\Http\Controllers\GmailApiVerificationController;
 use App\Http\Controllers\SmartEmailVerificationController;
 use App\Http\Controllers\SocialLoginController;
+use App\Http\Controllers\PasswordResetController;
 
 /*
 |--------------------------------------------------------------------------
@@ -512,6 +513,8 @@ Route::get('/setup-admin-once', function () {
 // Auth with rate limiting
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+Route::post('/password/forgot', [PasswordResetController::class, 'requestReset'])->middleware('throttle:5,1');
+Route::post('/password/reset', [PasswordResetController::class, 'resetPassword'])->middleware('throttle:5,1');
 
 // Phone verification routes (public)
 Route::post('/send-phone-verification-code', [AuthController::class, 'sendPhoneVerificationCode'])->middleware('throttle:3,1');
