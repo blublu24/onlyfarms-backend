@@ -7,6 +7,7 @@ use App\Events\OrderCreatedNotification;
 use App\Models\Product;
 use App\Models\Address;
 use App\Models\Seller;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -254,6 +255,18 @@ class OrderController extends Controller
                             ],
                         ],
                     ];
+
+                    Notification::create([
+                        'user_id' => $seller->user->id,
+                        'type' => $payload['type'],
+                        'title' => $payload['title'],
+                        'message' => $payload['message'],
+                        'data' => [
+                            'order' => $payload['order'],
+                            'redirect_route' => '/tabs/SellerConfirmOrderPage',
+                            'redirect_params' => ['orderId' => $order->id],
+                        ],
+                    ]);
 
                     broadcast(new OrderCreatedNotification($seller->user->id, $payload))->toOthers();
                 }

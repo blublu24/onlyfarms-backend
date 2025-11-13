@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\Seller;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use App\Events\MessageSent;
@@ -131,12 +132,27 @@ class ChatController extends Controller
                     'product_id' => $conversation->product_id,
                     'product_name' => $conversation->product->product_name ?? null,
                 ],
-                'message' => [
+                'message_details' => [
                     'id' => $message->id,
                     'body' => $message->body,
+                    'conversation_id' => $conversation->id,
                     'created_at' => $message->created_at->toDateTimeString(),
                 ],
             ];
+
+            Notification::create([
+                'user_id' => $recipientUserId,
+                'type' => $payload['type'],
+                'title' => $payload['title'],
+                'message' => $payload['message'],
+                'data' => [
+                    'conversation' => $payload['conversation'],
+                    'message' => $payload['message_details'],
+                    'sender' => $payload['sender'],
+                    'redirect_route' => '/tabs/chatpage',
+                    'redirect_params' => ['conversationId' => $conversation->id],
+                ],
+            ]);
 
             broadcast(new ChatMessageNotification($recipientUserId, $payload))->toOthers();
         }
