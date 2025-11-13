@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Http;
 use PHPMailer\PHPMailer\Exception as MailException;
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -24,6 +25,30 @@ class PhpMailerService
 
         if (empty($host) || empty($username) || empty($password) || empty($fromEmail)) {
             throw new \RuntimeException('SMTP credentials are not fully configured.');
+        }
+
+        if (str_contains($host, 'sendgrid.net')) {
+            if ($this->sendViaSendGridApi(
+                $fromEmail,
+                (string) $fromName,
+                $toEmail,
+                $toName,
+                $subject,
+                $htmlBody,
+                $textBody,
+                $password
+            )) {
+                \Log::info('Email sent successfully via SendGrid API', [
+                    'to' => $toEmail,
+                    'subject' => $subject,
+                ]);
+                return;
+            }
+
+            \Log::warning('SendGrid API fallback failed, attempting SMTP', [
+                'to' => $toEmail,
+                'subject' => $subject,
+            ]);
         }
 
         $attempts = $this->buildConnectionAttempts($host, $port, $encryption);
@@ -191,6 +216,70 @@ class PhpMailerService
         }
 
         return mb_substr($value, 0, 1) . str_repeat('*', $length - 2) . mb_substr($value, -1);
+    }
+
+    private function sendViaSendGridApi(
+        string $fromEmail,
+        string $fromName,
+        string $toEmail,
+        string $toName,
+        string $subject,
+        string $htmlBody,
+        ?string $textBody,
+        string $apiKey
+    ): bool {
+        if (empty($apiKey)) {
+            return false;
+        }
+
+        $plainText = $textBody ?? strip_tags($htmlBody);
+
+        try {
+            $response = Http::withToken($apiKey)
+                ->acceptJson()
+                ->post('https://api.sendgrid.com/v3/mail/send', [
+                    'personalizations' => [
+                        [
+                            'to' => [
+                                [
+                                    'email' => $toEmail,
+                                    'name' => $toName,
+                                ],
+                            ],
+                        ],
+                    ],
+                    'from' => [
+                        'email' => $fromEmail,
+                        'name' => $fromName,
+                    ],
+                    'subject' => $subject,
+                    'content' => [
+                        [
+                            'type' => 'text/plain',
+                            'value' => $plainText,
+                        ],
+                        [
+                            'type' => 'text/html',
+                            'value' => $htmlBody,
+                        ],
+                    ],
+                ]);
+
+            if ($response->successful()) {
+                return true;
+            }
+
+            \Log::error('SendGrid API call failed', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('SendGrid API call errored', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return false;
     }
 }
 
