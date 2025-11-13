@@ -36,20 +36,19 @@ class SellerController extends Controller
             ], 400);
         }
 
-        // Handle ID image uploads (store on public disk)
-        $frontPath = null;
-        if ($request->hasFile('government_id_front')) {
-            $frontPath = $request->file('government_id_front')->store('seller_ids', 'public');
-        } elseif ($request->filled('government_id_front')) {
-            // Legacy support: accept existing string paths (e.g., data migrated from older build)
-            $frontPath = $request->government_id_front;
+        if (!$request->hasFile('government_id_front')) {
+            return response()->json([
+                'message' => 'Government ID front image upload failed. Please try again.',
+                'error' => 'invalid_front_image',
+            ], 422);
         }
+
+        // Handle ID image uploads (store on public disk)
+        $frontPath = $request->file('government_id_front')->store('seller_ids', 'public');
 
         $backPath = null;
         if ($request->hasFile('government_id_back')) {
             $backPath = $request->file('government_id_back')->store('seller_ids', 'public');
-        } elseif ($request->filled('government_id_back')) {
-            $backPath = $request->government_id_back;
         }
 
         // Create Seller profile with all required fields
