@@ -144,7 +144,7 @@ class ProductController extends Controller
      */
     public function show($id)
     {
-        $product = Product::with('user')->findOrFail($id);
+        $product = Product::with(['user', 'seller.user'])->findOrFail($id);
         
         
         $imageUrl = $product->full_image_url; // ✅ Use model method for full URL
