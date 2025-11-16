@@ -38,8 +38,8 @@ class OrderController extends Controller
             'seller'
         ])
             ->where('user_id', $userId)
-            ->orderBy('created_at', 'desc')
-            ->orderBy('id', 'desc')
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
             ->get();
 
         // Manually load seller info for items where seller relationship failed
@@ -90,8 +90,8 @@ class OrderController extends Controller
         $ordersWithNumbers = $orders->map(function ($order, $index) use ($orderCount, $sellers) {
             $orderArray = $order->toArray();
             
-            // User-specific order number (1 = most recent, 2 = second most recent, etc.)
-            // Index 0 (most recent) = 1, Index 1 = 2, etc.
+            // User-specific order number (1 = oldest, 2 = second oldest, etc.)
+            // Index 0 (oldest) = 1, Index 1 = 2, etc.
             $orderArray['user_order_number'] = $index + 1;
             
             Log::info('Processing order', [
@@ -259,14 +259,14 @@ class OrderController extends Controller
         ]);
 
         // Calculate user-specific order number
-        // Get all orders for this user, sorted by most recent first
+        // Get all orders for this user, sorted by oldest first
         $allUserOrders = Order::where('user_id', $order->user_id)
-            ->orderBy('created_at', 'desc')
-            ->orderBy('id', 'desc')
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
             ->pluck('id')
             ->toArray();
         
-        // Find the index of this order (0 = most recent = Order #1)
+        // Find the index of this order (0 = oldest = Order #1)
         $orderIndex = array_search($order->id, $allUserOrders);
         $userOrderNumber = $orderIndex !== false ? $orderIndex + 1 : null;
         
