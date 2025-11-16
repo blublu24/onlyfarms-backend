@@ -70,11 +70,21 @@ class OrderController extends Controller
 
         // Calculate user-specific order numbers and attach seller info
         $orderCount = $orders->count();
+        
+        // Debug: Log order IDs and dates to verify sorting
+        $orderDebug = $orders->map(function ($o) {
+            return [
+                'id' => $o->id,
+                'created_at' => $o->created_at,
+            ];
+        })->toArray();
+        
         Log::info('Processing orders for user', [
             'user_id' => $userId,
             'total_orders' => $orderCount,
             'seller_ids_to_lookup' => $sellerIds->toArray(),
             'sellers_loaded' => $sellers->keys()->toArray(),
+            'orders_debug' => $orderDebug,
         ]);
         
         $ordersWithNumbers = $orders->map(function ($order, $index) use ($orderCount, $sellers) {
@@ -88,7 +98,8 @@ class OrderController extends Controller
                 'order_id' => $order->id,
                 'index' => $index,
                 'user_order_number' => $orderArray['user_order_number'],
-                'created_at' => $order->created_at,
+                'created_at' => $order->created_at->toDateTimeString(),
+                'is_first' => $index === 0,
             ]);
             
             // Manually attach seller info to items
@@ -131,6 +142,24 @@ class OrderController extends Controller
                                     'user' => isset($productSeller['user']) ? (object)$productSeller['user'] : null,
                                 ];
                                 $method = 'product';
+                            }
+                        }
+                        
+                        // Method 4: Get seller from Product model directly
+                        if (!$seller && !empty($item['product_id'])) {
+                            try {
+                                $product = \App\Models\Product::with('seller.user')
+                                    ->where('product_id', $item['product_id'])
+                                    ->first();
+                                if ($product && $product->seller) {
+                                    $seller = $product->seller;
+                                    $method = 'product_model';
+                                }
+                            } catch (\Exception $e) {
+                                Log::warning('Error fetching seller from product model', [
+                                    'error' => $e->getMessage(),
+                                    'product_id' => $item['product_id'],
+                                ]);
                             }
                         }
                         
@@ -276,6 +305,24 @@ class OrderController extends Controller
                                 'user' => isset($productSeller['user']) ? (object)$productSeller['user'] : null,
                             ];
                             $method = 'product';
+                        }
+                    }
+                    
+                    // Method 4: Get seller from Product model directly
+                    if (!$seller && !empty($item['product_id'])) {
+                        try {
+                            $product = \App\Models\Product::with('seller.user')
+                                ->where('product_id', $item['product_id'])
+                                ->first();
+                            if ($product && $product->seller) {
+                                $seller = $product->seller;
+                                $method = 'product_model';
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning('Error fetching seller from product model (show)', [
+                                'error' => $e->getMessage(),
+                                'product_id' => $item['product_id'],
+                            ]);
                         }
                     }
                     
