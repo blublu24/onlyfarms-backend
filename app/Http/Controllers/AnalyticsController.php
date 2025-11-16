@@ -649,9 +649,28 @@ class AnalyticsController extends Controller
             ]);
 
             // Format the data - handle nulls like ProductController does
+            // Also fetch seller data using Product model relationships if join didn't work
             $formattedProducts = $topProducts->map(function ($product) {
                 // Get shop_name with fallback to business_name, similar to ProductController
                 $shopName = $product->shop_name ?? $product->business_name ?? null;
+                $sellerId = $product->seller_id ?? null;
+                $sellerProfileImage = $product->seller_profile_image ?? null;
+                
+                // If seller data is missing from join, try to fetch it using Product model
+                if (!$shopName && $product->product_id) {
+                    try {
+                        $productModel = \App\Models\Product::with('seller.user')->find($product->product_id);
+                        if ($productModel && $productModel->seller) {
+                            $shopName = $productModel->seller->shop_name ?? $productModel->seller->business_name ?? null;
+                            $sellerId = $productModel->seller->id ?? null;
+                            if ($productModel->seller->user) {
+                                $sellerProfileImage = $productModel->seller->user->profile_image ?? null;
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        \Log::warning('Failed to fetch seller data for product ' . $product->product_id . ': ' . $e->getMessage());
+                    }
+                }
                 
                 // Ensure all required fields are present, even if null
                 return [
@@ -659,8 +678,8 @@ class AnalyticsController extends Controller
                     'product_name' => $product->product_name ?? 'Unknown Product',
                     'image_url' => $product->image_url ?? null,
                     'shop_name' => $shopName, // Will be null if both are null
-                    'seller_id' => $product->seller_id ?? null,
-                    'seller_profile_image' => $product->seller_profile_image ?? null,
+                    'seller_id' => $sellerId,
+                    'seller_profile_image' => $sellerProfileImage,
                     'avg_rating' => isset($product->avg_rating) ? (float) $product->avg_rating : 0, // Handle null ratings
                     'ratings_count' => isset($product->ratings_count) ? (int) $product->ratings_count : 0, // Handle null ratings count
                     'total_quantity_sold' => (int) ($product->total_quantity_sold ?? 0),
