@@ -447,8 +447,23 @@ class OrderController extends Controller
                     if (!$product)
                         abort(422, "Product {$row['product_id']} not found");
                     
+                    // Log raw input to debug quantity issue
+                    Log::info('🔍 Raw order item data received', [
+                        'raw_quantity' => $row['quantity'] ?? 'MISSING',
+                        'raw_quantity_type' => gettype($row['quantity'] ?? null),
+                        'raw_unit' => $row['unit'] ?? 'MISSING',
+                        'full_row' => $row,
+                    ]);
+                    
                     $qty = (float) $row['quantity'];
                     $unit = $row['unit'];
+                    
+                    // Log after conversion
+                    Log::info('🔍 Quantity after conversion', [
+                        'qty' => $qty,
+                        'unit' => $unit,
+                        'product_id' => $product->product_id,
+                    ]);
                     
                     // Fetch seller info to store in order_item (preserve even if seller is deleted later)
                     $sellerName = null;
@@ -531,6 +546,14 @@ class OrderController extends Controller
                         'variation_name' => $row['variation_name'] ?? null,
                         'estimated_price' => $lineTotal, // Add estimated price field
                     ];
+                    
+                    // Log what's being stored
+                    Log::info('💾 Line item being stored', [
+                        'quantity' => $lineItem['quantity'],
+                        'estimated_weight_kg' => $lineItem['estimated_weight_kg'],
+                        'unit' => $lineItem['unit'],
+                        'product_name' => $lineItem['product_name'],
+                    ]);
                     
                     $lineItems[] = $lineItem;
 
