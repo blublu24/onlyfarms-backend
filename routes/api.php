@@ -484,6 +484,7 @@ use App\Http\Controllers\GmailApiVerificationController;
 use App\Http\Controllers\SmartEmailVerificationController;
 use App\Http\Controllers\SocialLoginController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\NotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -855,6 +856,12 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::delete('/lalamove/orders/{lalamoveOrderId}', [LalamoveController::class, 'cancelOrder']);
     Route::post('/lalamove/orders/{lalamoveOrderId}/priority-fee', [LalamoveController::class, 'addPriorityFee']);
     Route::get('/lalamove/service-types', [LalamoveController::class, 'getServiceTypes']);
+
+    // ✅ Notifications
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/{id}/mark-read', [NotificationController::class, 'markAsRead'])->where('id', '[0-9]+');
+    Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
 });
 
 /*
