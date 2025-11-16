@@ -218,10 +218,6 @@ class OrderController extends Controller
                     $seller = Seller::with('user')->find($sellerId);
 
                     if (!$seller || !$seller->user) {
-                        Log::warning('Seller or seller user not found for notification', [
-                            'seller_id' => $sellerId,
-                            'order_id' => $order->id
-                        ]);
                         continue;
                     }
 
@@ -260,8 +256,8 @@ class OrderController extends Controller
                         ],
                     ];
 
+                    // Create notification in database for the seller
                     try {
-                        // Create notification in database (persistent)
                         $notification = Notification::create([
                             'user_id' => $seller->user->id,
                             'type' => $payload['type'],
@@ -272,36 +268,39 @@ class OrderController extends Controller
                                 'redirect_route' => '/tabs/SellerConfirmOrderPage',
                                 'redirect_params' => ['orderId' => $order->id],
                             ],
+                            'is_read' => false, // Explicitly set to false
                         ]);
 
                         Log::info('Notification created for seller', [
-                            'notification_id' => $notification->id,
+                            'seller_id' => $sellerId,
                             'seller_user_id' => $seller->user->id,
-                            'order_id' => $order->id
+                            'notification_id' => $notification->id,
+                            'order_id' => $order->id,
                         ]);
-
-                        // Broadcast real-time notification (if WebSocket/Pusher is configured)
-                        try {
-                            broadcast(new OrderCreatedNotification($seller->user->id, $payload))->toOthers();
-                            Log::info('Order created notification broadcasted', [
-                                'seller_user_id' => $seller->user->id,
-                                'order_id' => $order->id
-                            ]);
-                        } catch (\Exception $broadcastError) {
-                            // If broadcast fails, notification is still in database
-                            Log::warning('Failed to broadcast notification, but notification saved to database', [
-                                'seller_user_id' => $seller->user->id,
-                                'order_id' => $order->id,
-                                'error' => $broadcastError->getMessage()
-                            ]);
-                        }
-                    } catch (\Exception $notificationError) {
+                    } catch (\Exception $e) {
                         Log::error('Failed to create notification for seller', [
+                            'seller_id' => $sellerId,
                             'seller_user_id' => $seller->user->id,
                             'order_id' => $order->id,
-                            'error' => $notificationError->getMessage()
+                            'error' => $e->getMessage(),
                         ]);
-                        // Don't fail the order creation if notification fails
+                        // Continue even if notification creation fails - don't break the order creation
+                    }
+
+                    // Broadcast real-time notification to seller
+                    try {
+                        broadcast(new OrderCreatedNotification($seller->user->id, $payload))->toOthers();
+                        Log::info('Order created notification broadcasted', [
+                            'seller_user_id' => $seller->user->id,
+                            'order_id' => $order->id,
+                        ]);
+                    } catch (\Exception $e) {
+                        Log::error('Failed to broadcast order created notification', [
+                            'seller_user_id' => $seller->user->id,
+                            'order_id' => $order->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                        // Continue even if broadcast fails - notification is already in database
                     }
                 }
 
