@@ -589,7 +589,7 @@ class OrderController extends Controller
                 $itemsGroupedBySeller = $order->items->groupBy('seller_id');
 
                 foreach ($itemsGroupedBySeller as $sellerId => $items) {
-                    $seller = Seller::with('user')->find($sellerId);
+                    $seller = Seller::with('user')->where('user_id', $sellerId)->first();
 
                     if (!$seller || !$seller->user) {
                         continue;
