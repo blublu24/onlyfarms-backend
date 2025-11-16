@@ -47,10 +47,18 @@ class OrderController extends Controller
             return $order->items->pluck('seller_id')->filter()->unique();
         });
 
-        $sellers = \App\Models\Seller::whereIn('user_id', $sellerIds)
+        // Load sellers with their user info as fallback
+        $sellers = \App\Models\Seller::with('user')
+            ->whereIn('user_id', $sellerIds)
             ->select('user_id', 'shop_name', 'business_name')
             ->get()
             ->keyBy('user_id');
+
+        Log::info('Loaded sellers for orders', [
+            'seller_ids_requested' => $sellerIds->toArray(),
+            'sellers_found' => $sellers->keys()->toArray(),
+            'sellers_count' => $sellers->count(),
+        ]);
 
         // Calculate user-specific order numbers and attach seller info
         $orderCount = $orders->count();
@@ -58,19 +66,40 @@ class OrderController extends Controller
             $orderArray = $order->toArray();
             
             // User-specific order number (1 = most recent, 2 = second most recent, etc.)
-            $orderArray['user_order_number'] = $orderCount - $index;
+            // Index 0 (most recent) = 1, Index 1 = 2, etc.
+            $orderArray['user_order_number'] = $index + 1;
             
             // Manually attach seller info to items if missing
             if (isset($orderArray['items'])) {
                 foreach ($orderArray['items'] as &$item) {
-                    if (empty($item['seller']) && !empty($item['seller_id'])) {
+                    // Check if seller is null or empty, and seller_id exists
+                    if ((!isset($item['seller']) || $item['seller'] === null || empty($item['seller'])) && !empty($item['seller_id'])) {
                         $seller = $sellers->get($item['seller_id']);
                         if ($seller) {
+                            // Use shop_name, business_name, or user name as fallback
+                            $sellerName = $seller->shop_name ?? $seller->business_name ?? $seller->user->name ?? 'Unknown Seller';
+                            
                             $item['seller'] = [
                                 'user_id' => $seller->user_id,
                                 'shop_name' => $seller->shop_name,
                                 'business_name' => $seller->business_name,
+                                'name' => $sellerName,
                             ];
+                            Log::info('Manually attached seller to order item', [
+                                'order_id' => $order->id,
+                                'item_id' => $item['id'],
+                                'seller_id' => $item['seller_id'],
+                                'shop_name' => $seller->shop_name,
+                                'business_name' => $seller->business_name,
+                                'seller_name' => $sellerName,
+                            ]);
+                        } else {
+                            Log::warning('Seller not found for order item', [
+                                'order_id' => $order->id,
+                                'item_id' => $item['id'],
+                                'seller_id' => $item['seller_id'],
+                                'available_seller_ids' => $sellers->keys()->toArray(),
+                            ]);
                         }
                     }
                 }
@@ -111,12 +140,21 @@ class OrderController extends Controller
 
         // Manually load seller info for items where seller relationship failed
         $sellerIds = $order->items->pluck('seller_id')->filter()->unique();
-        $sellers = \App\Models\Seller::whereIn('user_id', $sellerIds)
+        $sellers = \App\Models\Seller::with('user')
+            ->whereIn('user_id', $sellerIds)
             ->select('user_id', 'shop_name', 'business_name')
             ->get()
             ->keyBy('user_id');
 
+        Log::info('Loaded sellers for order (show)', [
+            'order_id' => $order->id,
+            'seller_ids_requested' => $sellerIds->toArray(),
+            'sellers_found' => $sellers->keys()->toArray(),
+            'sellers_count' => $sellers->count(),
+        ]);
+
         // Calculate user-specific order number
+        // Count orders that are newer than this one (created_at > this order, or same created_at but id > this order)
         $userOrderCount = Order::where('user_id', $order->user_id)
             ->where(function($query) use ($order) {
                 $query->where('created_at', '>', $order->created_at)
@@ -127,6 +165,7 @@ class OrderController extends Controller
             })
             ->count();
         
+        // Most recent order = 1, second most recent = 2, etc.
         $userOrderNumber = $userOrderCount + 1;
         
         $orderArray = $order->toArray();
@@ -135,14 +174,34 @@ class OrderController extends Controller
         // Manually attach seller info to items if missing
         if (isset($orderArray['items'])) {
             foreach ($orderArray['items'] as &$item) {
-                if (empty($item['seller']) && !empty($item['seller_id'])) {
+                // Check if seller is null or empty, and seller_id exists
+                if ((!isset($item['seller']) || $item['seller'] === null || empty($item['seller'])) && !empty($item['seller_id'])) {
                     $seller = $sellers->get($item['seller_id']);
                     if ($seller) {
+                        // Use shop_name, business_name, or user name as fallback
+                        $sellerName = $seller->shop_name ?? $seller->business_name ?? $seller->user->name ?? 'Unknown Seller';
+                        
                         $item['seller'] = [
                             'user_id' => $seller->user_id,
                             'shop_name' => $seller->shop_name,
                             'business_name' => $seller->business_name,
+                            'name' => $sellerName,
                         ];
+                        Log::info('Manually attached seller to order item (show)', [
+                            'order_id' => $order->id,
+                            'item_id' => $item['id'],
+                            'seller_id' => $item['seller_id'],
+                            'shop_name' => $seller->shop_name,
+                            'business_name' => $seller->business_name,
+                            'seller_name' => $sellerName,
+                        ]);
+                    } else {
+                        Log::warning('Seller not found for order item (show)', [
+                            'order_id' => $order->id,
+                            'item_id' => $item['id'],
+                            'seller_id' => $item['seller_id'],
+                            'available_seller_ids' => $sellers->keys()->toArray(),
+                        ]);
                     }
                 }
             }
