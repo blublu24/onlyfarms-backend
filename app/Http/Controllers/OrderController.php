@@ -586,14 +586,60 @@ class OrderController extends Controller
 
                 $order->load(['items', 'user', 'items.product']);
 
+                Log::info('Order items loaded for notification', [
+                    'order_id' => $order->id,
+                    'items_count' => $order->items->count(),
+                    'seller_ids_in_items' => $order->items->pluck('seller_id')->unique()->values()->all(),
+                ]);
+
                 $itemsGroupedBySeller = $order->items->groupBy('seller_id');
 
-                foreach ($itemsGroupedBySeller as $sellerId => $items) {
-                    $seller = Seller::with('user')->where('user_id', $sellerId)->first();
+                Log::info('Items grouped by seller', [
+                    'order_id' => $order->id,
+                    'seller_groups' => $itemsGroupedBySeller->keys()->all(),
+                    'group_count' => $itemsGroupedBySeller->count(),
+                ]);
 
-                    if (!$seller || !$seller->user) {
+                foreach ($itemsGroupedBySeller as $sellerId => $items) {
+                    Log::info('Processing seller for notification', [
+                        'seller_user_id' => $sellerId,
+                        'items_count' => $items->count(),
+                        'order_id' => $order->id,
+                    ]);
+                    
+                    // seller_id in order_items is the user_id of the seller
+                    $seller = Seller::with('user')->where('user_id', $sellerId)->first();
+                    
+                    Log::info('Seller lookup result', [
+                        'seller_user_id' => $sellerId,
+                        'seller_found' => $seller ? 'yes' : 'no',
+                        'seller_id' => $seller?->id,
+                        'has_user' => $seller && $seller->user ? 'yes' : 'no',
+                        'user_id' => $seller?->user?->id,
+                    ]);
+
+                    if (!$seller) {
+                        Log::warning('Seller not found for notification', [
+                            'seller_user_id' => $sellerId,
+                            'order_id' => $order->id,
+                        ]);
                         continue;
                     }
+                    
+                    if (!$seller->user) {
+                        Log::warning('Seller user not found for notification', [
+                            'seller_id' => $seller->id,
+                            'seller_user_id' => $sellerId,
+                            'order_id' => $order->id,
+                        ]);
+                        continue;
+                    }
+                    
+                    Log::info('Seller found, creating notification', [
+                        'seller_id' => $seller->id,
+                        'seller_user_id' => $seller->user->id,
+                        'order_id' => $order->id,
+                    ]);
 
                     $itemsPayload = $items->map(function ($item) {
                         return [
@@ -634,7 +680,7 @@ class OrderController extends Controller
 
                     // Create notification in database for the seller
                     try {
-                        $notification = Notification::create([
+                        $notificationData = [
                             'user_id' => $seller->user->id,
                             'type' => $payload['type'],
                             'title' => $payload['title'],
@@ -646,20 +692,31 @@ class OrderController extends Controller
                                 'redirect_params' => ['orderId' => $order->id],
                             ],
                             'is_read' => false, // Explicitly set to false
+                        ];
+                        
+                        Log::info('Creating notification with data', [
+                            'seller_user_id' => $seller->user->id,
+                            'order_id' => $order->id,
+                            'notification_data' => $notificationData,
                         ]);
+                        
+                        $notification = Notification::create($notificationData);
 
-                        Log::info('Notification created for seller', [
+                        Log::info('✅ Notification created successfully for seller', [
                             'seller_id' => $sellerId,
                             'seller_user_id' => $seller->user->id,
                             'notification_id' => $notification->id,
                             'order_id' => $order->id,
+                            'notification_type' => $notification->type,
+                            'notification_title' => $notification->title,
                         ]);
                     } catch (\Exception $e) {
-                        Log::error('Failed to create notification for seller', [
+                        Log::error('❌ Failed to create notification for seller', [
                             'seller_id' => $sellerId,
                             'seller_user_id' => $seller->user->id,
                             'order_id' => $order->id,
                             'error' => $e->getMessage(),
+                            'error_trace' => $e->getTraceAsString(),
                         ]);
                         // Continue even if notification creation fails - don't break the order creation
                     }
