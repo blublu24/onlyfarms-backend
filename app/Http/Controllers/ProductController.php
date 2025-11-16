@@ -24,6 +24,10 @@ class ProductController extends Controller
         });
 
         // 🔍 NEW: Advanced filtering
+        if ($request->has('seller_id') && $request->seller_id) {
+            $query->where('seller_id', $request->seller_id);
+        }
+
         if ($request->has('category') && $request->category) {
             $query->where('category', $request->category);
         }
