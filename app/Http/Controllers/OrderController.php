@@ -107,12 +107,32 @@ class OrderController extends Controller
                                 'seller_name' => $sellerName,
                             ]);
                         } else {
-                            Log::warning('❌ Seller not found in lookup', [
-                                'order_id' => $order->id,
-                                'item_id' => $item['id'] ?? 'unknown',
-                                'seller_id' => $item['seller_id'],
-                                'available_seller_ids' => $sellers->keys()->toArray(),
-                            ]);
+                            // Try direct database query as last resort
+                            $directSeller = \App\Models\Seller::where('user_id', $item['seller_id'])
+                                ->with('user')
+                                ->first();
+                            if ($directSeller) {
+                                $sellerName = $directSeller->shop_name ?? $directSeller->business_name ?? ($directSeller->user ? $directSeller->user->name : null) ?? 'Unknown Seller';
+                                $item['seller'] = [
+                                    'user_id' => $directSeller->user_id,
+                                    'shop_name' => $directSeller->shop_name,
+                                    'business_name' => $directSeller->business_name,
+                                    'name' => $sellerName,
+                                ];
+                                Log::info('✅ Found seller via direct query', [
+                                    'order_id' => $order->id,
+                                    'item_id' => $item['id'] ?? 'unknown',
+                                    'seller_id' => $item['seller_id'],
+                                    'seller_name' => $sellerName,
+                                ]);
+                            } else {
+                                Log::warning('❌ Seller not found even with direct query', [
+                                    'order_id' => $order->id,
+                                    'item_id' => $item['id'] ?? 'unknown',
+                                    'seller_id' => $item['seller_id'],
+                                    'available_seller_ids' => $sellers->keys()->toArray(),
+                                ]);
+                            }
                         }
                     }
                 }
@@ -167,60 +187,36 @@ class OrderController extends Controller
         ]);
 
         // Calculate user-specific order number
-        // Count orders that are newer than this one (created_at > this order, or same created_at but id > this order)
-        $userOrderCount = Order::where('user_id', $order->user_id)
-            ->where(function($query) use ($order) {
-                $query->where('created_at', '>', $order->created_at)
-                    ->orWhere(function($q) use ($order) {
-                        $q->where('created_at', '=', $order->created_at)
-                          ->where('id', '>', $order->id);
-                    });
-            })
-            ->count();
+        // Get all orders for this user, sorted by most recent first
+        $allUserOrders = Order::where('user_id', $order->user_id)
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
+            ->pluck('id')
+            ->toArray();
         
-        // Most recent order = 1, second most recent = 2, etc.
-        $userOrderNumber = $userOrderCount + 1;
+        // Find the index of this order (0 = most recent = Order #1)
+        $orderIndex = array_search($order->id, $allUserOrders);
+        $userOrderNumber = $orderIndex !== false ? $orderIndex + 1 : null;
         
+        Log::info('Calculated user order number', [
+            'order_id' => $order->id,
+            'user_id' => $order->user_id,
+            'order_index' => $orderIndex,
+            'user_order_number' => $userOrderNumber,
+            'total_orders' => count($allUserOrders),
+        ]);
+        
+        // Convert to array first
         $orderArray = $order->toArray();
         $orderArray['user_order_number'] = $userOrderNumber;
-
-        // Attach seller info directly to order items before converting to array
-        foreach ($order->items as $item) {
-            if (empty($item->seller) && !empty($item->seller_id)) {
-                $seller = $sellers->get($item->seller_id);
-                if ($seller) {
-                    $sellerName = $seller->shop_name ?? $seller->business_name ?? ($seller->user ? $seller->user->name : null) ?? 'Unknown Seller';
-                    $item->setRelation('seller', (object)[
-                        'user_id' => $seller->user_id,
-                        'shop_name' => $seller->shop_name,
-                        'business_name' => $seller->business_name,
-                        'name' => $sellerName,
-                    ]);
-                    Log::info('Manually attached seller to order item (show)', [
-                        'order_id' => $order->id,
-                        'item_id' => $item->id,
-                        'seller_id' => $item->seller_id,
-                        'shop_name' => $seller->shop_name,
-                        'business_name' => $seller->business_name,
-                        'seller_name' => $sellerName,
-                    ]);
-                } else {
-                    Log::warning('Seller not found for order item (show)', [
-                        'order_id' => $order->id,
-                        'item_id' => $item->id,
-                        'seller_id' => $item->seller_id,
-                        'available_seller_ids' => $sellers->keys()->toArray(),
-                    ]);
-                }
-            }
-        }
         
-        $orderArray = $order->toArray();
-        
-        // Ensure seller data is in the array (in case toArray() didn't include it)
-        if (isset($orderArray['items'])) {
+        // Manually attach seller info to items in the array
+        if (isset($orderArray['items']) && is_array($orderArray['items'])) {
             foreach ($orderArray['items'] as &$item) {
-                if (empty($item['seller']) && !empty($item['seller_id'])) {
+                $hasSeller = !empty($item['seller']) && is_array($item['seller']);
+                $hasSellerId = !empty($item['seller_id']);
+                
+                if (!$hasSeller && $hasSellerId) {
                     $seller = $sellers->get($item['seller_id']);
                     if ($seller) {
                         $sellerName = $seller->shop_name ?? $seller->business_name ?? ($seller->user ? $seller->user->name : null) ?? 'Unknown Seller';
@@ -230,6 +226,39 @@ class OrderController extends Controller
                             'business_name' => $seller->business_name,
                             'name' => $sellerName,
                         ];
+                        Log::info('✅ Manually attached seller to order item (show)', [
+                            'order_id' => $order->id,
+                            'item_id' => $item['id'] ?? 'unknown',
+                            'seller_id' => $item['seller_id'],
+                            'seller_name' => $sellerName,
+                        ]);
+                    } else {
+                        // Try direct database query as last resort
+                        $directSeller = \App\Models\Seller::where('user_id', $item['seller_id'])
+                            ->with('user')
+                            ->first();
+                        if ($directSeller) {
+                            $sellerName = $directSeller->shop_name ?? $directSeller->business_name ?? ($directSeller->user ? $directSeller->user->name : null) ?? 'Unknown Seller';
+                            $item['seller'] = [
+                                'user_id' => $directSeller->user_id,
+                                'shop_name' => $directSeller->shop_name,
+                                'business_name' => $directSeller->business_name,
+                                'name' => $sellerName,
+                            ];
+                            Log::info('✅ Found seller via direct query (show)', [
+                                'order_id' => $order->id,
+                                'item_id' => $item['id'] ?? 'unknown',
+                                'seller_id' => $item['seller_id'],
+                                'seller_name' => $sellerName,
+                            ]);
+                        } else {
+                            Log::warning('❌ Seller not found even with direct query (show)', [
+                                'order_id' => $order->id,
+                                'item_id' => $item['id'] ?? 'unknown',
+                                'seller_id' => $item['seller_id'],
+                                'available_seller_ids' => $sellers->keys()->toArray(),
+                            ]);
+                        }
                     }
                 }
             }
