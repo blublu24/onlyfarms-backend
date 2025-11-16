@@ -624,8 +624,8 @@ class AnalyticsController extends Controller
                     u.profile_image as seller_profile_image,
                     p.avg_rating,
                     p.ratings_count,
-                    SUM(oi.quantity) as total_quantity_sold,
-                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    SUM(COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_quantity_sold,
+                    SUM(oi.price * COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_sales_amount,
                     COUNT(DISTINCT o.id) as total_orders
                 ')
                 ->groupBy(
@@ -734,8 +734,8 @@ class AnalyticsController extends Controller
                     u.profile_image as seller_profile_image,
                     COALESCE(p.avg_rating, 0) as avg_rating,
                     COALESCE(p.ratings_count, 0) as ratings_count,
-                    SUM(oi.quantity) as total_quantity_sold,
-                    SUM(oi.price * oi.quantity) as total_sales_amount,
+                    SUM(COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_quantity_sold,
+                    SUM(oi.price * COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_sales_amount,
                     COUNT(DISTINCT o.id) as total_orders
                 ')
                 ->groupBy(

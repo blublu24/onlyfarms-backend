@@ -105,6 +105,23 @@ class OrderController extends Controller
             // Manually attach seller info to items
             if (isset($orderArray['items']) && is_array($orderArray['items'])) {
                 foreach ($orderArray['items'] as &$item) {
+                    // First, check if seller_name or shop_name is already stored in order_item (best case - preserved from order creation)
+                    if (!empty($item['seller_name']) || !empty($item['shop_name'])) {
+                        $storedSellerName = $item['seller_name'] ?? $item['shop_name'];
+                        $item['seller'] = [
+                            'user_id' => $item['seller_id'] ?? null,
+                            'shop_name' => $item['shop_name'] ?? null,
+                            'business_name' => null,
+                            'name' => $storedSellerName,
+                        ];
+                        Log::info('✅ Using stored seller name from order_item', [
+                            'order_id' => $order->id,
+                            'item_id' => $item['id'] ?? 'unknown',
+                            'seller_name' => $storedSellerName,
+                        ]);
+                        continue; // Skip to next item
+                    }
+                    
                     // Check if seller is missing (null, empty, or not an array) and seller_id exists
                     $sellerIsMissing = !isset($item['seller']) || $item['seller'] === null || (is_array($item['seller']) && empty($item['seller']));
                     $hasSellerId = !empty($item['seller_id']);
@@ -268,6 +285,23 @@ class OrderController extends Controller
         // Manually attach seller info to items in the array
         if (isset($orderArray['items']) && is_array($orderArray['items'])) {
             foreach ($orderArray['items'] as &$item) {
+                // First, check if seller_name or shop_name is already stored in order_item (best case - preserved from order creation)
+                if (!empty($item['seller_name']) || !empty($item['shop_name'])) {
+                    $storedSellerName = $item['seller_name'] ?? $item['shop_name'];
+                    $item['seller'] = [
+                        'user_id' => $item['seller_id'] ?? null,
+                        'shop_name' => $item['shop_name'] ?? null,
+                        'business_name' => null,
+                        'name' => $storedSellerName,
+                    ];
+                    Log::info('✅ Using stored seller name from order_item (show)', [
+                        'order_id' => $order->id,
+                        'item_id' => $item['id'] ?? 'unknown',
+                        'seller_name' => $storedSellerName,
+                    ]);
+                    continue; // Skip to next item
+                }
+                
                 // Check if seller is missing (null, empty, or not an array) and seller_id exists
                 $sellerIsMissing = !isset($item['seller']) || $item['seller'] === null || (is_array($item['seller']) && empty($item['seller']));
                 $hasSellerId = !empty($item['seller_id']);
@@ -416,6 +450,25 @@ class OrderController extends Controller
                     $qty = (float) $row['quantity'];
                     $unit = $row['unit'];
                     
+                    // Fetch seller info to store in order_item (preserve even if seller is deleted later)
+                    $sellerName = null;
+                    $shopName = null;
+                    if ($product->seller_id) {
+                        try {
+                            $seller = Seller::with('user')->where('user_id', $product->seller_id)->first();
+                            if ($seller) {
+                                $sellerName = $seller->shop_name ?? $seller->business_name ?? ($seller->user ? $seller->user->name : null);
+                                $shopName = $seller->shop_name ?? null;
+                            }
+                        } catch (\Exception $e) {
+                            Log::warning('Failed to fetch seller info for order item', [
+                                'seller_id' => $product->seller_id,
+                                'product_id' => $product->product_id,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+                    
                     // Handle variation prices first
                     $unitPrice = 0;
                     $lineTotal = 0;
@@ -465,6 +518,8 @@ class OrderController extends Controller
                     $lineItem = [
                         'product_id' => $product->product_id,
                         'seller_id' => $product->seller_id,
+                        'seller_name' => $sellerName, // Store seller name at order creation time
+                        'shop_name' => $shopName,     // Store shop name at order creation time
                         'product_name' => $product->product_name,
                         'price' => $lineTotal, // Use total price, not unit price
                         'quantity' => $qty,
@@ -476,16 +531,6 @@ class OrderController extends Controller
                         'variation_name' => $row['variation_name'] ?? null,
                         'estimated_price' => $lineTotal, // Add estimated price field
                     ];
-                    
-                    // Debug logging for line item creation
-                    Log::info('Line item being created', [
-                        'lineItem' => $lineItem,
-                        'calculated_values' => [
-                            'lineTotal' => $lineTotal,
-                            'unitPrice' => $unitPrice,
-                            'qty' => $qty
-                        ]
-                    ]);
                     
                     $lineItems[] = $lineItem;
 
