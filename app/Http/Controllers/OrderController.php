@@ -628,6 +628,8 @@ class OrderController extends Controller
                                 'phone_number' => $order->user->phone_number,
                             ],
                         ],
+                        'redirect_route' => '/tabs/SellerConfirmOrderPage',
+                        'redirect_params' => ['orderId' => $order->id],
                     ];
 
                     // Create notification in database for the seller
@@ -639,6 +641,7 @@ class OrderController extends Controller
                             'message' => $payload['message'],
                             'data' => [
                                 'order' => $payload['order'],
+                                'orderId' => $order->id, // Add orderId at top level for easier access
                                 'redirect_route' => '/tabs/SellerConfirmOrderPage',
                                 'redirect_params' => ['orderId' => $order->id],
                             ],
