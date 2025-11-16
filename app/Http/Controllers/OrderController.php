@@ -21,14 +21,67 @@ class OrderController extends Controller
      */
     public function index(Request $request)
     {
-        $orders = Order::with(['items.product', 'seller'])
-            ->where('user_id', $request->user()->id)
-            ->latest()
+        $userId = $request->user()->id;
+        
+        // Get all orders for this user, ordered by creation date
+        $orders = Order::with([
+            'items' => function ($query) {
+                $query->with([
+                    'product' => function ($productQuery) {
+                        $productQuery->with('seller');
+                    },
+                    'seller' => function ($sellerQuery) {
+                        $sellerQuery->select('user_id', 'shop_name', 'business_name');
+                    }
+                ]);
+            },
+            'seller'
+        ])
+            ->where('user_id', $userId)
+            ->orderBy('created_at', 'desc')
+            ->orderBy('id', 'desc')
             ->get();
+
+        // Manually load seller info for items where seller relationship failed
+        $sellerIds = $orders->flatMap(function ($order) {
+            return $order->items->pluck('seller_id')->filter()->unique();
+        });
+
+        $sellers = \App\Models\Seller::whereIn('user_id', $sellerIds)
+            ->select('user_id', 'shop_name', 'business_name')
+            ->get()
+            ->keyBy('user_id');
+
+        // Calculate user-specific order numbers and attach seller info
+        $orderCount = $orders->count();
+        $ordersWithNumbers = $orders->map(function ($order, $index) use ($orderCount, $sellers) {
+            $orderArray = $order->toArray();
+            
+            // User-specific order number (1 = most recent, 2 = second most recent, etc.)
+            $orderArray['user_order_number'] = $orderCount - $index;
+            
+            // Manually attach seller info to items if missing
+            if (isset($orderArray['items'])) {
+                foreach ($orderArray['items'] as &$item) {
+                    if (empty($item['seller']) && !empty($item['seller_id'])) {
+                        $seller = $sellers->get($item['seller_id']);
+                        if ($seller) {
+                            $item['seller'] = [
+                                'user_id' => $seller->user_id,
+                                'shop_name' => $seller->shop_name,
+                                'business_name' => $seller->business_name,
+                            ];
+                        }
+                    }
+                }
+            }
+            
+            return $orderArray;
+        });
 
         return response()->json([
             'message' => 'Orders fetched successfully',
-            'data' => $orders
+            'data' => $ordersWithNumbers
         ]);
     }
 
@@ -44,15 +97,60 @@ class OrderController extends Controller
         // Load order with items and their seller information
         $order->load([
             'items' => function ($query) {
-                $query->with(['seller' => function ($sellerQuery) {
-                    $sellerQuery->select('id', 'shop_name', 'user_id');
-                }]);
-            }
+                $query->with([
+                    'product' => function ($productQuery) {
+                        $productQuery->with('seller');
+                    },
+                    'seller' => function ($sellerQuery) {
+                        $sellerQuery->select('user_id', 'shop_name', 'business_name');
+                    }
+                ]);
+            },
+            'seller'
         ]);
+
+        // Manually load seller info for items where seller relationship failed
+        $sellerIds = $order->items->pluck('seller_id')->filter()->unique();
+        $sellers = \App\Models\Seller::whereIn('user_id', $sellerIds)
+            ->select('user_id', 'shop_name', 'business_name')
+            ->get()
+            ->keyBy('user_id');
+
+        // Calculate user-specific order number
+        $userOrderCount = Order::where('user_id', $order->user_id)
+            ->where(function($query) use ($order) {
+                $query->where('created_at', '>', $order->created_at)
+                    ->orWhere(function($q) use ($order) {
+                        $q->where('created_at', '=', $order->created_at)
+                          ->where('id', '>', $order->id);
+                    });
+            })
+            ->count();
+        
+        $userOrderNumber = $userOrderCount + 1;
+        
+        $orderArray = $order->toArray();
+        $orderArray['user_order_number'] = $userOrderNumber;
+
+        // Manually attach seller info to items if missing
+        if (isset($orderArray['items'])) {
+            foreach ($orderArray['items'] as &$item) {
+                if (empty($item['seller']) && !empty($item['seller_id'])) {
+                    $seller = $sellers->get($item['seller_id']);
+                    if ($seller) {
+                        $item['seller'] = [
+                            'user_id' => $seller->user_id,
+                            'shop_name' => $seller->shop_name,
+                            'business_name' => $seller->business_name,
+                        ];
+                    }
+                }
+            }
+        }
 
         return response()->json([
             'message' => 'Order fetched successfully',
-            'data' => $order
+            'data' => $orderArray
         ]);
     }
 
