@@ -218,6 +218,10 @@ class OrderController extends Controller
                     $seller = Seller::with('user')->find($sellerId);
 
                     if (!$seller || !$seller->user) {
+                        Log::warning('Seller or seller user not found for notification', [
+                            'seller_id' => $sellerId,
+                            'order_id' => $order->id
+                        ]);
                         continue;
                     }
 
@@ -256,19 +260,49 @@ class OrderController extends Controller
                         ],
                     ];
 
-                    Notification::create([
-                        'user_id' => $seller->user->id,
-                        'type' => $payload['type'],
-                        'title' => $payload['title'],
-                        'message' => $payload['message'],
-                        'data' => [
-                            'order' => $payload['order'],
-                            'redirect_route' => '/tabs/SellerConfirmOrderPage',
-                            'redirect_params' => ['orderId' => $order->id],
-                        ],
-                    ]);
+                    try {
+                        // Create notification in database (persistent)
+                        $notification = Notification::create([
+                            'user_id' => $seller->user->id,
+                            'type' => $payload['type'],
+                            'title' => $payload['title'],
+                            'message' => $payload['message'],
+                            'data' => [
+                                'order' => $payload['order'],
+                                'redirect_route' => '/tabs/SellerConfirmOrderPage',
+                                'redirect_params' => ['orderId' => $order->id],
+                            ],
+                        ]);
 
-                    broadcast(new OrderCreatedNotification($seller->user->id, $payload))->toOthers();
+                        Log::info('Notification created for seller', [
+                            'notification_id' => $notification->id,
+                            'seller_user_id' => $seller->user->id,
+                            'order_id' => $order->id
+                        ]);
+
+                        // Broadcast real-time notification (if WebSocket/Pusher is configured)
+                        try {
+                            broadcast(new OrderCreatedNotification($seller->user->id, $payload))->toOthers();
+                            Log::info('Order created notification broadcasted', [
+                                'seller_user_id' => $seller->user->id,
+                                'order_id' => $order->id
+                            ]);
+                        } catch (\Exception $broadcastError) {
+                            // If broadcast fails, notification is still in database
+                            Log::warning('Failed to broadcast notification, but notification saved to database', [
+                                'seller_user_id' => $seller->user->id,
+                                'order_id' => $order->id,
+                                'error' => $broadcastError->getMessage()
+                            ]);
+                        }
+                    } catch (\Exception $notificationError) {
+                        Log::error('Failed to create notification for seller', [
+                            'seller_user_id' => $seller->user->id,
+                            'order_id' => $order->id,
+                            'error' => $notificationError->getMessage()
+                        ]);
+                        // Don't fail the order creation if notification fails
+                    }
                 }
 
                 // Note: Stock is NOT decremented here - it will only be decremented when seller accepts the order
