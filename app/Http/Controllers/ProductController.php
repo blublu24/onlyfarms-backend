@@ -18,14 +18,29 @@ class ProductController extends Controller
         $query = Product::with('seller'); // Eager-load seller
 
         // Only show approved products on homepage (or products without status for backward compatibility)
-        $query->where(function($q) {
-            $q->where('status', 'approved')
-              ->orWhereNull('status'); // Show products without status for backward compatibility
-        });
+        // BUT: When filtering by seller_id, show all products (seller viewing their own products)
+        $hasSellerFilter = $request->has('seller_id') && $request->seller_id;
+        
+        if (!$hasSellerFilter) {
+            $query->where(function($q) {
+                $q->where('status', 'approved')
+                  ->orWhereNull('status'); // Show products without status for backward compatibility
+            });
+        }
 
         // 🔍 NEW: Advanced filtering
-        if ($request->has('seller_id') && $request->seller_id) {
-            $query->where('seller_id', $request->seller_id);
+        if ($hasSellerFilter) {
+            // Convert to integer to handle both string and number inputs
+            $sellerId = (int) $request->seller_id;
+            $query->where('seller_id', $sellerId);
+            
+            // Debug logging
+            \Log::info('Filtering products by seller_id', [
+                'requested_seller_id' => $request->seller_id,
+                'converted_seller_id' => $sellerId,
+                'type' => gettype($request->seller_id),
+                'status_filter_applied' => false
+            ]);
         }
 
         if ($request->has('category') && $request->category) {
@@ -99,6 +114,16 @@ class ProductController extends Controller
         } else {
             // Normal query execution
             $products = $query->get();
+        }
+
+        // Debug logging for seller_id filter
+        if ($hasSellerFilter) {
+            \Log::info('Products query result', [
+                'seller_id' => (int) $request->seller_id,
+                'total_products_found' => $products->count(),
+                'product_ids' => $products->pluck('product_id')->toArray(),
+                'product_seller_ids' => $products->pluck('seller_id')->toArray(),
+            ]);
         }
 
         $products = $products->map(function ($p) {
