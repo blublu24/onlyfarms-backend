@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
 use App\Models\User;
 use App\Services\EmailOtpService;
 use Laravel\Socialite\Facades\Socialite;
@@ -116,12 +117,17 @@ class AuthController extends Controller
             'address' => $request->address,
         ];
 
-        // Handle profile image upload
+        // Handle profile image upload - use Storage::disk('public') like products
         if ($request->hasFile('profile_image')) {
+            // Delete old profile image if it exists
+            if ($user->profile_image && Storage::disk('public')->exists($user->profile_image)) {
+                Storage::disk('public')->delete($user->profile_image);
+            }
+            
             $image = $request->file('profile_image');
-            $imageName = time() . '_' . $user->id . '.' . $image->getClientOriginalExtension();
-            $image->move(public_path('uploads/profiles'), $imageName);
-            $updateData['profile_image'] = 'uploads/profiles/' . $imageName;
+            // Store in storage/app/public/profiles/ (same pattern as products)
+            $path = $image->store('profiles', 'public');
+            $updateData['profile_image'] = $path;
         }
 
         $user->update($updateData);

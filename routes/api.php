@@ -324,8 +324,11 @@ Route::get('/test-deployment', function () {
 // Handles both product images and profile images
 Route::get('/image/{filename}', function ($filename) {
     try {
+        // Extract just the filename if path includes directory (e.g., "products/filename.jpg" -> "filename.jpg")
+        $actualFilename = basename($filename);
+        
         // Try product images first (storage/app/public/products/)
-        $productPath = storage_path('app/public/products/' . $filename);
+        $productPath = storage_path('app/public/products/' . $actualFilename);
         if (file_exists($productPath)) {
             $mimeType = mime_content_type($productPath);
             $fileContents = file_get_contents($productPath);
@@ -337,8 +340,8 @@ Route::get('/image/{filename}', function ($filename) {
             ]);
         }
         
-        // Try profile images (public/uploads/profiles/)
-        $profilePath = public_path('uploads/profiles/' . $filename);
+        // Try profile images (storage/app/public/profiles/) - same as products
+        $profilePath = storage_path('app/public/profiles/' . $actualFilename);
         if (file_exists($profilePath)) {
             $mimeType = mime_content_type($profilePath);
             $fileContents = file_get_contents($profilePath);
@@ -350,8 +353,21 @@ Route::get('/image/{filename}', function ($filename) {
             ]);
         }
         
+        // Legacy: Try old profile images location (public/uploads/profiles/) for backward compatibility
+        $legacyProfilePath = public_path('uploads/profiles/' . $actualFilename);
+        if (file_exists($legacyProfilePath)) {
+            $mimeType = mime_content_type($legacyProfilePath);
+            $fileContents = file_get_contents($legacyProfilePath);
+            
+            return response($fileContents, 200, [
+                'Content-Type' => $mimeType,
+                'Content-Length' => strlen($fileContents),
+                'Cache-Control' => 'public, max-age=31536000',
+            ]);
+        }
+        
         // Try seller ID images (storage/app/public/seller_ids/)
-        $sellerIdPath = storage_path('app/public/seller_ids/' . $filename);
+        $sellerIdPath = storage_path('app/public/seller_ids/' . $actualFilename);
         if (file_exists($sellerIdPath)) {
             $mimeType = mime_content_type($sellerIdPath);
             $fileContents = file_get_contents($sellerIdPath);
