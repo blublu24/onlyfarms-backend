@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -369,6 +370,40 @@ class SellerOrderController extends Controller
                     ]);
                 }
             }
+        }
+
+        // Create notification for the buyer when seller confirms
+        try {
+            $seller = $user->seller;
+            $sellerName = $seller ? ($seller->shop_name ?? $seller->business_name ?? $user->name) : $user->name;
+            
+            Notification::create([
+                'user_id' => $order->user_id,
+                'type' => 'order',
+                'title' => 'Order Confirmed! ✅',
+                'message' => "Your order #{$order->id} has been confirmed by {$sellerName} and is being prepared!",
+                'data' => [
+                    'order_id' => $order->id,
+                    'orderId' => $order->id,
+                    'status' => 'confirmed',
+                    'seller_name' => $sellerName,
+                    'redirect_route' => '/tabs/FinalReceiptPage',
+                    'redirect_params' => ['orderId' => $order->id],
+                ],
+                'is_read' => false,
+            ]);
+
+            Log::info('Notification created for buyer on order confirmation', [
+                'order_id' => $order->id,
+                'buyer_user_id' => $order->user_id,
+                'seller_user_id' => $user->id,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to create notification for buyer on order confirmation', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+            // Don't fail the confirmation if notification fails
         }
 
         return response()->json([
