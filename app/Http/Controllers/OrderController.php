@@ -682,10 +682,10 @@ class OrderController extends Controller
                     try {
                         $notificationData = [
                             'user_id' => $seller->user->id,
-                            'type' => $payload['type'],
+                            'type' => 'new_order', // Explicitly set type to 'new_order' for sellers
                             'title' => $payload['title'],
                             'message' => $payload['message'],
-                            'data' => [
+                            'data' => [ // Laravel will auto-encode this to JSON due to 'array' cast
                                 'order' => $payload['order'],
                                 'orderId' => $order->id, // Add orderId at top level for easier access
                                 'redirect_route' => '/tabs/SellerConfirmOrderPage',
@@ -1158,17 +1158,67 @@ class OrderController extends Controller
                 'updated_at' => now(),
             ]);
 
-            Log::info('Notification created for order cancellation', [
+            Log::info('Notification created for order cancellation (buyer)', [
                 'order_id' => $order->id,
                 'user_id' => $order->user_id,
                 'cancelled_by' => $cancelledBy,
             ]);
         } catch (\Exception $e) {
-            Log::error('Failed to create notification for order cancellation', [
+            Log::error('Failed to create notification for order cancellation (buyer)', [
                 'order_id' => $order->id,
                 'error' => $e->getMessage(),
             ]);
             // Don't fail the cancellation if notification fails
+        }
+
+        // Create notifications for sellers when buyer cancels
+        if ($cancelledBy === 'buyer' || $cancelledBy === 'unknown') {
+            try {
+                // Get unique seller IDs from order items
+                $sellerIds = $order->items->pluck('seller_id')->unique()->filter();
+                
+                foreach ($sellerIds as $sellerId) {
+                    $seller = Seller::with('user')->where('user_id', $sellerId)->first();
+                    
+                    if ($seller && $seller->user) {
+                        try {
+                            Notification::create([
+                                'user_id' => $seller->user->id,
+                                'type' => 'order_cancelled',
+                                'title' => 'Order Cancelled by Buyer',
+                                'message' => "Order #{$order->id} has been cancelled by the buyer. Reason: {$reason}.",
+                                'data' => json_encode([
+                                    'order_id' => $order->id,
+                                    'cancelled_by' => $cancelledBy,
+                                    'reason' => $reason,
+                                    'redirect_route' => '/tabs/SellerOrdersPage',
+                                    'redirect_params' => ['orderId' => $order->id],
+                                ]),
+                                'is_read' => false,
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+
+                            Log::info('Notification created for order cancellation (seller)', [
+                                'order_id' => $order->id,
+                                'seller_user_id' => $seller->user->id,
+                                'cancelled_by' => $cancelledBy,
+                            ]);
+                        } catch (\Exception $e) {
+                            Log::error('Failed to create notification for seller on order cancellation', [
+                                'order_id' => $order->id,
+                                'seller_user_id' => $seller->user->id,
+                                'error' => $e->getMessage(),
+                            ]);
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                Log::error('Failed to process seller notifications for order cancellation', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
 
         return response()->json([
