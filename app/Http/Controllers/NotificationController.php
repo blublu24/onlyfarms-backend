@@ -22,25 +22,40 @@ class NotificationController extends Controller
             ], 401);
         }
 
+        \Log::info('Fetching notifications for user', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+        ]);
+
         $notifications = Notification::where('user_id', $user->id)
             ->orderBy('created_at', 'desc')
-            ->get()
-            ->map(function ($notification) {
-                return [
-                    'id' => $notification->id,
-                    'type' => $notification->type,
-                    'title' => $notification->title,
-                    'message' => $notification->message,
-                    'data' => $notification->data ?? [],
-                    'is_read' => $notification->is_read,
-                    'created_at' => $notification->created_at?->toISOString(),
-                    'updated_at' => $notification->updated_at?->toISOString(),
-                ];
-            });
+            ->get();
+
+        \Log::info('Found notifications in database', [
+            'count' => $notifications->count(),
+            'notification_ids' => $notifications->pluck('id')->toArray(),
+        ]);
+
+        $mappedNotifications = $notifications->map(function ($notification) {
+            return [
+                'id' => $notification->id,
+                'type' => $notification->type,
+                'title' => $notification->title,
+                'message' => $notification->message,
+                'data' => $notification->data ?? [],
+                'is_read' => $notification->is_read,
+                'created_at' => $notification->created_at?->toIso8601String() ?? $notification->created_at?->format('c') ?? now()->toIso8601String(),
+                'updated_at' => $notification->updated_at?->toIso8601String() ?? $notification->updated_at?->format('c') ?? now()->toIso8601String(),
+            ];
+        });
+
+        \Log::info('Returning notifications response', [
+            'count' => $mappedNotifications->count(),
+        ]);
 
         return response()->json([
             'message' => 'Notifications fetched successfully',
-            'data' => $notifications
+            'data' => $mappedNotifications
         ]);
     }
 
@@ -77,7 +92,7 @@ class NotificationController extends Controller
             'data' => [
                 'id' => $notification->id,
                 'is_read' => $notification->is_read,
-                'read_at' => $notification->read_at?->toISOString(),
+                'read_at' => $notification->read_at?->toIso8601String() ?? $notification->read_at?->format('c'),
             ]
         ]);
     }
