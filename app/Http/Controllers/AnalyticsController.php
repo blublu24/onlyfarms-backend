@@ -331,25 +331,43 @@ class AnalyticsController extends Controller
             $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
-                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
                 ->whereDate('oi.created_at', $today)
                 ->selectRaw('
                     p.product_id,
                     p.product_name,
                     p.image_url,
-                    s.shop_name,
+                    COALESCE(s.shop_name, s.business_name, "Unknown Seller") as shop_name,
+                    s.id as seller_id,
+                    u.profile_image as seller_profile_image,
+                    COALESCE(p.avg_rating, 0) as avg_rating,
+                    COALESCE(p.ratings_count, 0) as ratings_count,
                     SUM(oi.quantity) as total_quantity_sold,
                     SUM(oi.price * oi.quantity) as total_sales_amount,
                     COUNT(DISTINCT o.id) as total_orders
                 ')
-                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->groupBy(
+                    'p.product_id',
+                    'p.product_name',
+                    'p.image_url',
+                    's.shop_name',
+                    's.business_name',
+                    's.id',
+                    'u.profile_image',
+                    'p.avg_rating',
+                    'p.ratings_count'
+                )
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($productSales);
+            // Return empty array if no data, not an error object
+            return response()->json($productSales->isEmpty() ? [] : $productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No daily product sales available', 'debug' => $e->getMessage()], 200);
+            // Log error but return empty array instead of error object
+            \Log::error('Error fetching daily product sales: ' . $e->getMessage());
+            return response()->json([]);
         }
     }
 
@@ -363,25 +381,43 @@ class AnalyticsController extends Controller
             $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
-                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
                 ->whereBetween('oi.created_at', [$weekStart, $weekEnd])
                 ->selectRaw('
                     p.product_id,
                     p.product_name,
                     p.image_url,
-                    s.shop_name,
+                    COALESCE(s.shop_name, s.business_name, "Unknown Seller") as shop_name,
+                    s.id as seller_id,
+                    u.profile_image as seller_profile_image,
+                    COALESCE(p.avg_rating, 0) as avg_rating,
+                    COALESCE(p.ratings_count, 0) as ratings_count,
                     SUM(oi.quantity) as total_quantity_sold,
                     SUM(oi.price * oi.quantity) as total_sales_amount,
                     COUNT(DISTINCT o.id) as total_orders
                 ')
-                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->groupBy(
+                    'p.product_id',
+                    'p.product_name',
+                    'p.image_url',
+                    's.shop_name',
+                    's.business_name',
+                    's.id',
+                    'u.profile_image',
+                    'p.avg_rating',
+                    'p.ratings_count'
+                )
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($productSales);
+            // Return empty array if no data, not an error object
+            return response()->json($productSales->isEmpty() ? [] : $productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No weekly product sales available', 'debug' => $e->getMessage()], 200);
+            // Log error but return empty array instead of error object
+            \Log::error('Error fetching weekly product sales: ' . $e->getMessage());
+            return response()->json([]);
         }
     }
 
@@ -395,25 +431,43 @@ class AnalyticsController extends Controller
             $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
-                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
                 ->whereBetween('oi.created_at', [$monthStart, $monthEnd])
                 ->selectRaw('
                     p.product_id,
                     p.product_name,
                     p.image_url,
-                    s.shop_name,
+                    COALESCE(s.shop_name, s.business_name, "Unknown Seller") as shop_name,
+                    s.id as seller_id,
+                    u.profile_image as seller_profile_image,
+                    COALESCE(p.avg_rating, 0) as avg_rating,
+                    COALESCE(p.ratings_count, 0) as ratings_count,
                     SUM(oi.quantity) as total_quantity_sold,
                     SUM(oi.price * oi.quantity) as total_sales_amount,
                     COUNT(DISTINCT o.id) as total_orders
                 ')
-                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->groupBy(
+                    'p.product_id',
+                    'p.product_name',
+                    'p.image_url',
+                    's.shop_name',
+                    's.business_name',
+                    's.id',
+                    'u.profile_image',
+                    'p.avg_rating',
+                    'p.ratings_count'
+                )
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($productSales);
+            // Return empty array if no data, not an error object
+            return response()->json($productSales->isEmpty() ? [] : $productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No monthly product sales available', 'debug' => $e->getMessage()], 200);
+            // Log error but return empty array instead of error object
+            \Log::error('Error fetching monthly product sales: ' . $e->getMessage());
+            return response()->json([]);
         }
     }
 
@@ -427,25 +481,43 @@ class AnalyticsController extends Controller
             $productSales = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
-                ->join('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
                 ->whereBetween('oi.created_at', [$yearStart, $yearEnd])
                 ->selectRaw('
                     p.product_id,
                     p.product_name,
                     p.image_url,
-                    s.shop_name,
+                    COALESCE(s.shop_name, s.business_name, "Unknown Seller") as shop_name,
+                    s.id as seller_id,
+                    u.profile_image as seller_profile_image,
+                    COALESCE(p.avg_rating, 0) as avg_rating,
+                    COALESCE(p.ratings_count, 0) as ratings_count,
                     SUM(oi.quantity) as total_quantity_sold,
                     SUM(oi.price * oi.quantity) as total_sales_amount,
                     COUNT(DISTINCT o.id) as total_orders
                 ')
-                ->groupBy('p.product_id', 'p.product_name', 'p.image_url', 's.shop_name')
+                ->groupBy(
+                    'p.product_id',
+                    'p.product_name',
+                    'p.image_url',
+                    's.shop_name',
+                    's.business_name',
+                    's.id',
+                    'u.profile_image',
+                    'p.avg_rating',
+                    'p.ratings_count'
+                )
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
-            return response()->json($productSales);
+            // Return empty array if no data, not an error object
+            return response()->json($productSales->isEmpty() ? [] : $productSales);
         } catch (\Exception $e) {
-            return response()->json(['error' => 'No yearly product sales available', 'debug' => $e->getMessage()], 200);
+            // Log error but return empty array instead of error object
+            \Log::error('Error fetching yearly product sales: ' . $e->getMessage());
+            return response()->json([]);
         }
     }
 
@@ -532,31 +604,87 @@ class AnalyticsController extends Controller
             // Build date filter based on period
             $dateFilter = $this->buildDateFilter($period);
             
-            // Query to get top products by total sales amount
+            // Query to get top products by total sales amount, including seller & rating info
             $topProducts = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->leftJoin('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
+                ->whereNotNull('p.seller_id') // Only include products with seller_id
+                ->where('p.seller_id', '>', 0) // Ensure seller_id is valid
                 ->whereBetween('o.created_at', [$dateFilter['startDate'], $dateFilter['endDate']])
                 ->selectRaw('
+                    p.product_id,
                     p.product_name,
-                    SUM(oi.quantity) as total_quantity_sold,
-                    SUM(oi.price * oi.quantity) as total_sales_amount,
-                    COUNT(DISTINCT o.id) as total_orders,
-                    p.image_url
+                    p.image_url,
+                    s.shop_name,
+                    s.business_name,
+                    s.id as seller_id,
+                    u.profile_image as seller_profile_image,
+                    p.avg_rating,
+                    p.ratings_count,
+                    SUM(COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_quantity_sold,
+                    SUM(oi.price * COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
                 ')
-                ->groupBy('p.product_name', 'p.image_url')
+                ->groupBy(
+                    'p.product_id',
+                    'p.product_name',
+                    'p.image_url',
+                    's.shop_name',
+                    's.business_name',
+                    's.id',
+                    'u.profile_image',
+                    'p.avg_rating',
+                    'p.ratings_count'
+                )
                 ->orderByDesc('total_sales_amount')
                 ->get();
 
-            // Format the data
+            // Debug: Log raw query results
+            \Log::info('Top Products Raw Query Results:', [
+                'count' => $topProducts->count(),
+                'first_item' => $topProducts->first() ? (array) $topProducts->first() : null
+            ]);
+
+            // Format the data - handle nulls like ProductController does
+            // Also fetch seller data using Product model relationships if join didn't work
             $formattedProducts = $topProducts->map(function ($product) {
+                // Get shop_name with fallback to business_name, similar to ProductController
+                $shopName = $product->shop_name ?? $product->business_name ?? null;
+                $sellerId = $product->seller_id ?? null;
+                $sellerProfileImage = $product->seller_profile_image ?? null;
+                
+                // If seller data is missing from join, try to fetch it using Product model
+                if (!$shopName && $product->product_id) {
+                    try {
+                        $productModel = \App\Models\Product::with('seller.user')->find($product->product_id);
+                        if ($productModel && $productModel->seller) {
+                            $shopName = $productModel->seller->shop_name ?? $productModel->seller->business_name ?? null;
+                            $sellerId = $productModel->seller->id ?? null;
+                            if ($productModel->seller->user) {
+                                $sellerProfileImage = $productModel->seller->user->profile_image ?? null;
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        \Log::warning('Failed to fetch seller data for product ' . $product->product_id . ': ' . $e->getMessage());
+                    }
+                }
+                
+                // Ensure all required fields are present, even if null
                 return [
-                    'product_name' => $product->product_name,
-                    'total_quantity_sold' => (int) $product->total_quantity_sold,
-                    'total_sales_amount' => round((float) $product->total_sales_amount, 2),
-                    'total_orders' => (int) $product->total_orders,
-                    'image_url' => $product->image_url
+                    'product_id' => $product->product_id ?? null,
+                    'product_name' => $product->product_name ?? 'Unknown Product',
+                    'image_url' => $product->image_url ?? null,
+                    'shop_name' => $shopName, // Will be null if both are null
+                    'seller_id' => $sellerId,
+                    'seller_profile_image' => $sellerProfileImage,
+                    'avg_rating' => isset($product->avg_rating) ? (float) $product->avg_rating : 0, // Handle null ratings
+                    'ratings_count' => isset($product->ratings_count) ? (int) $product->ratings_count : 0, // Handle null ratings count
+                    'total_quantity_sold' => (int) ($product->total_quantity_sold ?? 0),
+                    'total_sales_amount' => round((float) ($product->total_sales_amount ?? 0), 2),
+                    'total_orders' => (int) ($product->total_orders ?? 0),
                 ];
             });
 
@@ -593,26 +721,50 @@ class AnalyticsController extends Controller
             $topProducts = DB::table('order_items as oi')
                 ->join('orders as o', 'oi.order_id', '=', 'o.id')
                 ->join('products as p', 'oi.product_id', '=', 'p.product_id')
+                ->leftJoin('sellers as s', 'p.seller_id', '=', 's.id')
+                ->leftJoin('users as u', 's.user_id', '=', 'u.id')
                 ->where('o.status', 'completed')
                 ->whereBetween('o.created_at', [$dateFilter['startDate'], $dateFilter['endDate']])
                 ->selectRaw('
+                    p.product_id,
                     p.product_name,
-                    SUM(oi.quantity) as total_quantity_sold,
-                    SUM(oi.price * oi.quantity) as total_sales_amount,
-                    COUNT(DISTINCT o.id) as total_orders,
-                    p.image_url
+                    p.image_url,
+                    COALESCE(s.shop_name, s.business_name, "Unknown Seller") as shop_name,
+                    s.id as seller_id,
+                    u.profile_image as seller_profile_image,
+                    COALESCE(p.avg_rating, 0) as avg_rating,
+                    COALESCE(p.ratings_count, 0) as ratings_count,
+                    SUM(COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_quantity_sold,
+                    SUM(oi.price * COALESCE(oi.actual_weight_kg, oi.estimated_weight_kg, oi.quantity)) as total_sales_amount,
+                    COUNT(DISTINCT o.id) as total_orders
                 ')
-                ->groupBy('p.product_name', 'p.image_url')
+                ->groupBy(
+                    'p.product_id',
+                    'p.product_name',
+                    'p.image_url',
+                    's.shop_name',
+                    's.business_name',
+                    's.id',
+                    'u.profile_image',
+                    'p.avg_rating',
+                    'p.ratings_count'
+                )
                 ->orderByDesc('total_quantity_sold')
                 ->get();
 
             $formattedProducts = $topProducts->map(function ($product) {
                 return [
+                    'product_id' => $product->product_id,
                     'product_name' => $product->product_name,
+                    'image_url' => $product->image_url,
+                    'shop_name' => $product->shop_name,
+                    'seller_id' => $product->seller_id,
+                    'seller_profile_image' => $product->seller_profile_image,
+                    'avg_rating' => $product->avg_rating,
+                    'ratings_count' => $product->ratings_count,
                     'total_quantity_sold' => (int) $product->total_quantity_sold,
                     'total_sales_amount' => round((float) $product->total_sales_amount, 2),
                     'total_orders' => (int) $product->total_orders,
-                    'image_url' => $product->image_url
                 ];
             });
 

@@ -18,12 +18,13 @@ return new class extends Migration
             $table->string('title');
             $table->text('message');
             $table->json('data')->nullable(); // Additional data like order_id, etc.
-            $table->boolean('read')->default(false);
+            $table->boolean('is_read')->default(false);
+            $table->timestamp('read_at')->nullable();
             $table->timestamps();
             
             $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
             $table->index('user_id');
-            $table->index('read');
+            $table->index('is_read');
         });
     }
 

@@ -11,6 +11,8 @@ class OrderItem extends Model
         'order_id',     // Which order this line item belongs to
         'product_id',   // Which product was bought
         'seller_id',    // Which seller owns the product (helps payouts)
+        'seller_name',  // Snapshot of seller name at the time of order (preserved even if seller is deleted)
+        'shop_name',    // Snapshot of shop name at the time of order (preserved even if seller is deleted)
         'product_name', // Snapshot of product name at the time of order
         'price',        // Snapshot of price at the time of order
         'quantity',     // How many of this product
