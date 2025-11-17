@@ -68,7 +68,7 @@ class AuthController extends Controller
         }
 
         $newToken = $user->createToken('onlyfarms_token');
-        $expiresAt = now()->addHours(12);
+        $expiresAt = now()->addDays(60); // Facebook-style: 60 days expiration
         $newToken->accessToken->expires_at = $expiresAt;
         $newToken->accessToken->save();
 
@@ -343,7 +343,7 @@ class AuthController extends Controller
 
         // Create token for the user
         $newToken = $user->createToken('onlyfarms_token');
-        $expiresAt = now()->addHours(12);
+        $expiresAt = now()->addDays(60); // Facebook-style: 60 days expiration
         $newToken->accessToken->expires_at = $expiresAt;
         $newToken->accessToken->save();
 

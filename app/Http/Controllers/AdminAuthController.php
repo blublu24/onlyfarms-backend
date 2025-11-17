@@ -24,8 +24,8 @@ class AdminAuthController extends Controller
 
         // Create token using Sanctum with admin guard and set expiration
         $newToken = $admin->createToken('admin_token', ['admin']);
-        // Set a concrete expiration (12 hours) on the token model for extra safety
-        $expiresAt = now()->addHours(12);
+        // Set a concrete expiration (60 days) on the token model for extra safety
+        $expiresAt = now()->addDays(60); // Facebook-style: 60 days expiration
         $accessToken = $newToken->accessToken;
         $accessToken->expires_at = $expiresAt;
         $accessToken->save();

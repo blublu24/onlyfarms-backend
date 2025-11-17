@@ -48,8 +48,8 @@ return [
     */
 
     // Global expiration for Sanctum tokens (minutes). Must be >= expected usage.
-    // We use 12 hours to align with controller-level expires_at
-    'expiration' => env('SANCTUM_EXPIRATION', 60 * 12),
+    // We use 60 days (Facebook-style) to align with controller-level expires_at
+    'expiration' => env('SANCTUM_EXPIRATION', 60 * 24 * 60), // 60 days in minutes
 
     /*
     |--------------------------------------------------------------------------
