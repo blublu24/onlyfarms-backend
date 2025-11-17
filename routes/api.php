@@ -773,6 +773,7 @@ Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
     Route::get('/seller/products', [ProductController::class, 'myProducts']);
     Route::post('/seller/products', [ProductController::class, 'store']);
     Route::put('/seller/products/{id}', [ProductController::class, 'update']);
+    Route::post('/seller/products/{id}', [ProductController::class, 'update']); // POST support for React Native FormData
     Route::delete('/seller/products/{id}', [ProductController::class, 'destroy']);
 
     // Orders (buyer)
