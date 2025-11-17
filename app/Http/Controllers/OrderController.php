@@ -1041,6 +1041,40 @@ class OrderController extends Controller
         // ✅ Use the helper
         $this->markAsCompleted($order);
 
+        // Create notification for the buyer
+        try {
+            $seller = \App\Models\Seller::where('user_id', auth()->id())->first();
+            $sellerName = $seller ? ($seller->shop_name ?? $seller->business_name ?? auth()->user()->name) : auth()->user()->name;
+            
+            Notification::create([
+                'user_id' => $order->user_id,
+                'type' => 'order',
+                'title' => 'Order Delivered! 🚚',
+                'message' => "Your order #{$order->id} has been delivered by {$sellerName}. Thank you for your purchase!",
+                'data' => [
+                    'order_id' => $order->id,
+                    'orderId' => $order->id,
+                    'status' => 'completed',
+                    'seller_name' => $sellerName,
+                    'redirect_route' => '/FinalReceiptPage',
+                    'redirect_params' => ['orderId' => $order->id],
+                ],
+                'is_read' => false,
+            ]);
+
+            Log::info('Notification created for buyer on order delivery', [
+                'order_id' => $order->id,
+                'buyer_user_id' => $order->user_id,
+                'seller_user_id' => auth()->id(),
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to create notification for buyer on order delivery', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+            // Don't fail the delivery if notification fails
+        }
+
         return response()->json([
             'message' => 'The COD order has been delivered and marked as paid.',
             'order' => $order

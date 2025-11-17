@@ -163,6 +163,42 @@ class SellerOrderController extends Controller
         $order->status = $request->status;
         $order->save();
 
+        // Create notification for buyer when order is marked as delivered
+        if ($newStatus === 'delivered' || $newStatus === 'completed') {
+            try {
+                $seller = $user->seller;
+                $sellerName = $seller ? ($seller->shop_name ?? $seller->business_name ?? $user->name) : $user->name;
+                
+                Notification::create([
+                    'user_id' => $order->user_id,
+                    'type' => 'order',
+                    'title' => 'Order Delivered! 🚚',
+                    'message' => "Your order #{$order->id} has been delivered by {$sellerName}. Thank you for your purchase!",
+                    'data' => [
+                        'order_id' => $order->id,
+                        'orderId' => $order->id,
+                        'status' => 'completed',
+                        'seller_name' => $sellerName,
+                        'redirect_route' => '/FinalReceiptPage',
+                        'redirect_params' => ['orderId' => $order->id],
+                    ],
+                    'is_read' => false,
+                ]);
+
+                Log::info('Notification created for buyer on order delivery', [
+                    'order_id' => $order->id,
+                    'buyer_user_id' => $order->user_id,
+                    'seller_user_id' => $user->id,
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to create notification for buyer on order delivery', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+                // Don't fail the status update if notification fails
+            }
+        }
+
         return response()->json([
             'message' => 'Order status updated successfully',
             'order' => $order->load('items')
