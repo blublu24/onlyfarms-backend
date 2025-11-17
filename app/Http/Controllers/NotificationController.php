@@ -25,15 +25,28 @@ class NotificationController extends Controller
         \Log::info('Fetching notifications for user', [
             'user_id' => $user->id,
             'user_email' => $user->email,
+            'user_name' => $user->name,
+        ]);
+
+        // Debug: Check all notifications in database (for debugging)
+        $allNotifications = Notification::all();
+        \Log::info('All notifications in database (debug)', [
+            'total_count' => $allNotifications->count(),
+            'all_user_ids' => $allNotifications->pluck('user_id')->unique()->values()->all(),
+            'notifications_by_user' => $allNotifications->groupBy('user_id')->map(function ($group) {
+                return $group->count();
+            })->all(),
         ]);
 
         $notifications = Notification::where('user_id', $user->id)
             ->orderBy('created_at', 'desc')
             ->get();
 
-        \Log::info('Found notifications in database', [
+        \Log::info('Found notifications in database for user', [
+            'user_id' => $user->id,
             'count' => $notifications->count(),
             'notification_ids' => $notifications->pluck('id')->toArray(),
+            'notification_types' => $notifications->pluck('type')->all(),
         ]);
 
         $mappedNotifications = $notifications->map(function ($notification) {
