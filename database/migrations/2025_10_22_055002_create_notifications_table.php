@@ -13,7 +13,17 @@ return new class extends Migration
     {
         Schema::create('notifications', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('user_id');
+            $table->string('type')->nullable(); // e.g., 'order_cancelled', 'order_confirmed', etc.
+            $table->string('title');
+            $table->text('message');
+            $table->json('data')->nullable(); // Additional data like order_id, etc.
+            $table->boolean('read')->default(false);
             $table->timestamps();
+            
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+            $table->index('user_id');
+            $table->index('read');
         });
     }
 

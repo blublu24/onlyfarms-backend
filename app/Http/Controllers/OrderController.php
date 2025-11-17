@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Address;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -603,6 +604,42 @@ class OrderController extends Controller
         // Update order status
         $order->status = 'cancelled';
         $order->save();
+
+        // Get cancellation reason from request
+        $reason = request()->input('reason', 'No reason provided');
+        $cancelledBy = request()->input('cancelled_by', 'unknown');
+
+        // Create notification for the buyer
+        try {
+            Notification::create([
+                'user_id' => $order->user_id,
+                'type' => 'order_cancelled',
+                'title' => 'Order Cancelled',
+                'message' => $cancelledBy === 'seller' 
+                    ? "Your order #{$order->id} has been cancelled by the seller. Reason: {$reason}. You will receive a full refund if payment was made."
+                    : "Your order #{$order->id} has been cancelled. Reason: {$reason}.",
+                'data' => json_encode([
+                    'order_id' => $order->id,
+                    'cancelled_by' => $cancelledBy,
+                    'reason' => $reason,
+                ]),
+                'read' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            Log::info('Notification created for order cancellation', [
+                'order_id' => $order->id,
+                'user_id' => $order->user_id,
+                'cancelled_by' => $cancelledBy,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to create notification for order cancellation', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+            ]);
+            // Don't fail the cancellation if notification fails
+        }
 
         return response()->json([
             'message' => 'Order cancelled successfully',
