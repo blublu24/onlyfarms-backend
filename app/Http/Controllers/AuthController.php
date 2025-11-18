@@ -138,6 +138,19 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Get authenticated user data with seller info (for both sellers and regular users)
+     */
+    public function user(Request $request)
+    {
+        $user = $request->user();
+        
+        // Load seller relationship if it exists (works for both pending and approved sellers)
+        $user->load('seller');
+        
+        return response()->json($user);
+    }
+
     // PHONE VERIFICATION METHODS (DISABLED - SMS NOT CONFIGURED)
     // To enable: Configure SMS service (Semaphore, Twilio, or AWS SNS) in .env
     

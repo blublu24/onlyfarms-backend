@@ -778,6 +778,7 @@ Route::middleware(['auth:admin', 'admin'])->prefix('admin')->group(function () {
 Route::middleware(['auth:sanctum', 'throttle:100,1'])->group(function () {
 
     // Auth
+    Route::get('/user', [AuthController::class, 'user']); // Get authenticated user data
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/user/profile', [AuthController::class, 'updateProfile']);
 
